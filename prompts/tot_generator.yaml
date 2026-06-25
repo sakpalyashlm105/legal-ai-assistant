@@ -1,0 +1,112 @@
+# prompts/tot_generator.yaml
+# ---------------------------
+# Prompt template for the Tree-of-Thought candidate generator node.
+#
+# When is this used?
+#   When clause extraction produces confidence in the 0.5-0.7 band, the
+#   passage is genuinely ambiguous. This prompt asks the model to propose
+#   2-4 candidate interpretations and score each one across four independent
+#   dimensions. It is called at BOTH depth 1 (initial candidate generation)
+#   and depth 2 (re-scoring with local document context appended).
+#
+# Variables injected by tot_reasoner.py at runtime:
+#   {clause_categories}     -- newline-separated list of the 10 approved categories
+#   {triggering_category}   -- the category that originally returned low confidence
+#   {clause_text}           -- the ambiguous passage (and local context if depth 2)
+#   {depth}                 -- 1 or 2 (so the model knows whether context was added)
+#
+# Expected output schema: JSON object with a "candidates" array. Each element
+# must contain: candidate_id, clause_category, textual_evidence_score,
+# category_fit_score, template_alignment_score, exclusivity_score,
+# composite_score, rationale. See schemas/tot.py for field definitions.
+#
+# Safety: this prompt must never ask the model to output raw chain-of-thought
+# reasoning. Only structured scores and a brief rationale string are permitted.
+#
+# version: "1.0"
+# last-modified: 2026-06-23
+
+version: "1.0"
+
+system: |
+  You are a legal clause analysis specialist performing structured multi-hypothesis
+  evaluation. Your task is to evaluate a passage of legal text and propose candidate
+  clause-category interpretations, scoring each one objectively across four dimensions.
+
+  Critical rules:
+  1. Return ONLY a JSON object containing a "candidates" array -- no markdown,
+     no prose, no explanation outside the JSON.
+  2. Do NOT include any chain-of-thought reasoning in your response. Only the
+     structured scores and the brief rationale field are permitted.
+  3. The rationale for each candidate must be 1-2 sentences maximum -- a
+     structured summary of the evidence, not a reasoning trace.
+  4. Propose between 2 and 4 candidates. Never fewer than 2, never more than 4.
+  5. Each candidate_id must be unique within your response (e.g. "cand_1", "cand_2").
+  6. All score fields must be numbers between 0.0 and 1.0, not strings.
+  7. clause_category must be one of the 10 approved categories listed in the user
+     message -- never invent new categories.
+  8. composite_score must equal the average of the four sub-scores, rounded to 4
+     decimal places.
+
+user: |
+  Depth: {depth}
+
+  The following legal passage triggered low extraction confidence (0.5-0.7 band)
+  when evaluated as: "{triggering_category}".
+
+  Analyse the passage and propose 2-4 candidate clause-category interpretations.
+  Score each candidate across the four dimensions defined below.
+
+  ---
+  PASSAGE TO EVALUATE:
+  {clause_text}
+  ---
+
+  Approved clause categories (only these 10 are valid):
+  {clause_categories}
+
+  Scoring dimensions (each scored 0.0 to 1.0):
+
+  1. textual_evidence_score
+     Does the exact wording of the passage support this interpretation?
+     High (0.8+): passage uses standard terminology for this category.
+     Low (<0.4): the connection requires significant inference or extrapolation.
+
+  2. category_fit_score
+     Does this match the category's definition -- not just a superficial resemblance?
+     High: the obligation, right, or restriction described IS the core of this category.
+     Low: the passage only resembles the category at a surface level.
+
+  3. template_alignment_score
+     How well does this interpretation align with a standard template for this clause type?
+     High: the passage follows the standard structure and obligations of this clause type.
+     Low: the passage deviates significantly from what a standard version looks like.
+
+  4. exclusivity_score
+     How clearly is this candidate better than the other candidates you are proposing?
+     High: this candidate clearly outperforms the alternatives for this passage.
+     Low: another candidate you are proposing is nearly as plausible for this text.
+
+  Note: exclusivity_score should reflect this candidate's relative standing among ALL
+  candidates you generate. If two candidates are nearly tied, both should have low
+  exclusivity scores.
+
+  {depth_2_instruction}
+
+  Respond with a JSON object in exactly this structure:
+  {{
+    "candidates": [
+      {{
+        "candidate_id": "cand_1",
+        "clause_category": "<one of the 10 approved categories>",
+        "textual_evidence_score": <float 0.0-1.0>,
+        "category_fit_score": <float 0.0-1.0>,
+        "template_alignment_score": <float 0.0-1.0>,
+        "exclusivity_score": <float 0.0-1.0>,
+        "composite_score": <average of the four scores above, rounded to 4 decimal places>,
+        "rationale": "<1-2 sentence structured summary of why this category fits this passage>"
+      }}
+    ]
+  }}
+
+  The array must contain between 2 and 4 elements.

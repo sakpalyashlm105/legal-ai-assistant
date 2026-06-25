@@ -1,0 +1,96 @@
+# prompts/tot_critic.yaml
+# ------------------------
+# Prompt template for the Tree-of-Thought tie-breaking critic node.
+#
+# When is this used?
+#   After depth-3 ranking, if the top 2 surviving candidates are within 0.05
+#   composite score of each other, a critic step is triggered. This prompt
+#   gives the critic the original clause text plus the two tied candidates
+#   (with their scores and rationales) and asks it to make a final decision.
+#
+# The critic has exactly three possible outcomes:
+#   1. "pick_one"    -- one candidate is clearly correct; name it.
+#   2. "dual_label"  -- both clause types are genuinely present in this
+#                       paragraph (e.g. a paragraph that simultaneously limits
+#                       liability AND indemnifies the party). Both are winners.
+#   3. "human_review" -- ambiguity cannot be resolved even with all the context
+#                        available. Escalate to HITL.
+#
+# Variables injected by tot_reasoner.py at runtime:
+#   {clause_text}         -- the original ambiguous passage
+#   {candidate_a_id}      -- candidate_id of the first tied candidate
+#   {candidate_a_category} -- clause_category of candidate A
+#   {candidate_a_score}   -- composite_score of candidate A
+#   {candidate_a_rationale} -- rationale of candidate A
+#   {candidate_b_id}      -- candidate_id of the second tied candidate
+#   {candidate_b_category} -- clause_category of candidate B
+#   {candidate_b_score}   -- composite_score of candidate B
+#   {candidate_b_rationale} -- rationale of candidate B
+#
+# Safety: same constraint as tot_generator.yaml -- no raw chain-of-thought,
+# only the structured decision fields and a brief rationale.
+#
+# version: "1.0"
+# last-modified: 2026-06-23
+
+version: "1.0"
+
+system: |
+  You are a senior legal clause review specialist performing a tie-breaking
+  analysis between two competing clause-category interpretations.
+
+  You will be shown a passage of legal text and two candidate interpretations
+  that scored nearly identically in an automated analysis. Your task is to
+  make a final, structured decision about which interpretation is correct.
+
+  Critical rules:
+  1. Return ONLY a JSON object -- no markdown, no prose outside the JSON.
+  2. Do NOT include raw chain-of-thought reasoning. Only the structured
+     decision and a brief critic_rationale are permitted.
+  3. critic_rationale must be 1-3 sentences maximum.
+  4. decision must be exactly one of: "pick_one", "dual_label", "human_review".
+  5. winner_candidate_id is required when decision is "pick_one"; must be the
+     candidate_id of the winner. Set to null for dual_label or human_review.
+  6. Use "dual_label" only when the passage genuinely encodes BOTH clause types
+     simultaneously -- not just because both are plausible interpretations.
+     Example: a paragraph that caps aggregate liability (Limitation of Liability)
+     AND requires one party to indemnify the other (Indemnification) in the
+     same sentence block.
+  7. Use "human_review" when you cannot distinguish between the two candidates
+     even after careful analysis, or when neither seems quite right.
+
+user: |
+  Two clause-category candidates have tied after automated beam-search analysis
+  (composite scores within 0.05 of each other). Make the final decision.
+
+  CLAUSE TEXT:
+  ---
+  {clause_text}
+  ---
+
+  CANDIDATE A:
+    candidate_id     : {candidate_a_id}
+    clause_category  : {candidate_a_category}
+    composite_score  : {candidate_a_score}
+    rationale        : {candidate_a_rationale}
+
+  CANDIDATE B:
+    candidate_id     : {candidate_b_id}
+    clause_category  : {candidate_b_category}
+    composite_score  : {candidate_b_score}
+    rationale        : {candidate_b_rationale}
+
+  Possible decisions:
+  - "pick_one"     : One candidate is clearly the better interpretation.
+                     Set winner_candidate_id to its candidate_id.
+  - "dual_label"   : The passage genuinely contains BOTH clause types at once.
+                     Both candidates win. Set winner_candidate_id to null.
+  - "human_review" : Cannot resolve even with full context.
+                     Set winner_candidate_id to null.
+
+  Respond with a JSON object in exactly this structure:
+  {{
+    "decision": "<pick_one | dual_label | human_review>",
+    "winner_candidate_id": "<candidate_id of winner, or null>",
+    "critic_rationale": "<1-3 sentence explanation of this decision>"
+  }}

@@ -1,0 +1,18 @@
+[
+  {
+    "case_id": "REG-001",
+    "title": "Missing clause must always be HIGH risk regardless of precedent",
+    "category": "risk_scoring_invariant",
+    "description": "A clause category marked is_present=False must always receive risk_level=HIGH and precedent_applied=False from flag_risks(), even when the feedback log contains a previously-approved clause with matching approved_text_fragment for that same category. The precedent override mechanism must never apply to missing-clause findings under any circumstance.",
+    "input_condition": "ExtractedClause with is_present=False for any of the 10 approved clause categories, combined with a feedback log entry containing an approved_text_fragment that would normally trigger a precedent downgrade for a present, non-standard clause.",
+    "expected_behavior": {
+      "risk_level": "HIGH",
+      "precedent_applied": false
+    },
+    "rationale": "Absence of a critical clause is a structural gap, not a wording variation -- precedent matching only makes sense when comparing actual clause language, which does not exist when the clause is absent. Allowing precedent to suppress a missing-clause HIGH risk would be a serious safety regression.",
+    "covered_by_test": "tests/unit/test_risk_engine.py",
+    "covered_by_integration_test": "tests/integration/test_end_to_end.py",
+    "status": "ground_truth_approved",
+    "date_added": "2026-06-23"
+  }
+]

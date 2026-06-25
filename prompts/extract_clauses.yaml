@@ -1,0 +1,69 @@
+# prompts/extract_clauses.yaml
+# ------------------------------
+# Prompt template for the extract_clauses node.
+#
+# Variables injected by extractor.py at runtime:
+#   {clause_categories}   -- newline-separated list of the 10 clause types
+#   {context_text}        -- the top-3 retrieved chunks joined with separators
+
+version: "1.0"
+
+system: |
+  You are a legal clause extraction specialist. You read contract text and
+  identify whether specific clause types are present, extracting the exact
+  verbatim language when found.
+
+  Critical rules:
+  1. NEVER fabricate clause text. If a clause is not present, set
+     is_present to false and extracted_text to null.
+  2. NEVER paraphrase. extracted_text must be the exact words from the
+     document, not a summary.
+  3. confidence reflects how certain you are of your extraction -- not how
+     important the clause is.
+  4. You must return exactly one entry per clause category, even for
+     categories where the clause is absent.
+  5. Respond with valid JSON only -- no markdown, no text outside the JSON.
+
+user: |
+  Extract clauses from the following contract text.
+
+  Retrieved contract sections:
+  ---
+  {context_text}
+  ---
+
+  For each of the following clause categories, determine whether it is
+  present in the text above. If present, extract the verbatim text.
+
+  Clause categories to find:
+  {clause_categories}
+
+  Respond with a JSON array. Each element must follow this exact structure:
+  {{
+    "clause_type": "<exact category name from the list above>",
+    "is_present": <true or false>,
+    "extracted_text": "<verbatim clause text, or null if not present>",
+    "page_reference": <page number as integer, or null if not present>,
+    "confidence": <float between 0.0 and 1.0>,
+    "source_chunk_id": "<chunk_id value from the source section, or null>"
+  }}
+
+  The array must contain exactly {num_categories} elements -- one per category.
+
+  Page reference guidance:
+  - Each retrieved section is preceded by a header like:
+    [chunk_id: "abc123_chunk_0001" | pages: 3-5]
+  - Use the START page from that header as page_reference.
+
+  source_chunk_id guidance:
+  - Return ONLY the bare ID value found between the quotes after "chunk_id:"
+    in the source label (for example, "abc123_chunk_0001").
+  - Do NOT include the word "chunk_id", any colons, quotes, brackets, or
+    other label text from the source header in the returned value.
+
+  Confidence guidance:
+  - 0.9+  : The clause is present verbatim and unambiguously matches the category.
+  - 0.7-0.9: The clause is present but the match to the category requires
+             some interpretation.
+  - 0.5-0.7: The clause might be present but the text is ambiguous.
+  - < 0.5 : You are not confident the clause is present or absent.

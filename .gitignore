@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+data/raw/
+data/processed/
+data/vector_store/
+data/review_queue/
+.venv/
+venv/
+venv_new/
+*.egg-info/
+.pytest_cache/
