@@ -1,0 +1,118 @@
+2026-06-18 14:45:26 - INFO - Source directory: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw
+2026-06-18 14:45:26 - INFO - Output directory: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\pdf
+2026-06-18 14:45:26 - INFO - Found 19 HTML file(s) to process
+2026-06-18 14:45:26 - INFO - ================================================================================
+2026-06-18 14:45:26 - INFO - Starting HTML to PDF conversion...
+2026-06-18 14:45:26 - INFO - ================================================================================
+2026-06-18 14:45:26 - INFO - [1/19] Skipped: Amendment_15_DYNAVAX_TECHNOLOGIES_CORP_(DVAX).htm -> Amendment_15_DYNAVAX_TECHNOLOGIES_CORP_(DVAX).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [2/19] Skipped: Amendment_16_Marqeta,_Inc._(MQ).htm -> Amendment_16_Marqeta,_Inc._(MQ).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [3/19] Skipped: Amendment_17_Akerna_Corp._(GRYP).htm -> Amendment_17_Akerna_Corp._(GRYP).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [4/19] Skipped: Amendment_18_Olema_Pharmaceuticals,_Inc._(OLMA).htm -> Amendment_18_Olema_Pharmaceuticals,_Inc._(OLMA).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [5/19] Skipped: Amendment_19_Inari_Medical,_Inc._(NARI).htm -> Amendment_19_Inari_Medical,_Inc._(NARI).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [6/19] Skipped: ServiceAgreement_10_INTEGRAL_TECHNOLOGIES_INC.htm -> ServiceAgreement_10_INTEGRAL_TECHNOLOGIES_INC.pdf (already exists)
+2026-06-18 14:45:26 - INFO - [7/19] Skipped: ServiceAgreement_14_LifeMD,_Inc._(LFMD,_LFMDP).htm -> ServiceAgreement_14_LifeMD,_Inc._(LFMD,_LFMDP).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [8/19] Skipped: ServiceAgreement_15_Waton_Financial_Ltd.htm -> ServiceAgreement_15_Waton_Financial_Ltd.pdf (already exists)
+2026-06-18 14:45:26 - INFO - [9/19] Skipped: ServiceAgreement_6_Sunrise_Communications_AG_(SNRS).htm -> ServiceAgreement_6_Sunrise_Communications_AG_(SNRS).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [10/19] Skipped: ServiceAgreement_9_Coeur_Mining,_Inc._(CDE).htm -> ServiceAgreement_9_Coeur_Mining,_Inc._(CDE).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [11/19] Skipped: SupplierAgreement_11_CERUS_CORP_(CERS).htm -> SupplierAgreement_11_CERUS_CORP_(CERS).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [12/19] Skipped: SupplierAgreement_12_NOVAVAX_INC_(NVAX).htm -> SupplierAgreement_12_NOVAVAX_INC_(NVAX).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [13/19] Skipped: SupplierAgreement_13_Apollo_Strategic_Growth_Capital_(GBTG).htm -> SupplierAgreement_13_Apollo_Strategic_Growth_Capital_(GBTG).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [14/19] Skipped: SupplierAgreement_14_Brag_House_Holdings,_Inc._(TBH).htm -> SupplierAgreement_14_Brag_House_Holdings,_Inc._(TBH).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [15/19] Skipped: NDA_1_Hemoglobin_Oxygen_Therapeutics_LLC.htm -> NDA_1_Hemoglobin_Oxygen_Therapeutics_LLC.pdf (already exists)
+2026-06-18 14:45:26 - INFO - [16/19] Skipped: NDA_2_Bakhu_Holdings,_Corp._(BKUH).htm -> NDA_2_Bakhu_Holdings,_Corp._(BKUH).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [17/19] Skipped: NDA_3_Starry_Group_Holdings,_Inc..htm -> NDA_3_Starry_Group_Holdings,_Inc..pdf (already exists)
+2026-06-18 14:45:26 - INFO - [18/19] Skipped: NDA_4_TRxADE_HEALTH,_INC_(MEDS).htm -> NDA_4_TRxADE_HEALTH,_INC_(MEDS).pdf (already exists)
+2026-06-18 14:45:26 - INFO - [19/19] Skipped: NDA_5_BlueRiver_Acquisition_Corp._(BLUAF,_BLUAW,_BLUVF).htm -> NDA_5_BlueRiver_Acquisition_Corp._(BLUAF,_BLUAW,_BLUVF).pdf (already exists)
+2026-06-18 14:45:26 - INFO - ================================================================================
+2026-06-18 14:45:26 - INFO - HTML REMOVAL PHASE
+2026-06-18 14:45:26 - INFO - ================================================================================
+2026-06-18 14:45:26 - INFO - DELETED HTML: Amendment_15_DYNAVAX_TECHNOLOGIES_CORP_(DVAX).htm (PDF validated OK)
+2026-06-18 14:45:26 - INFO - DELETED HTML: Amendment_16_Marqeta,_Inc._(MQ).htm (PDF validated OK)
+2026-06-18 14:45:26 - INFO - DELETED HTML: Amendment_17_Akerna_Corp._(GRYP).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: Amendment_18_Olema_Pharmaceuticals,_Inc._(OLMA).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: Amendment_19_Inari_Medical,_Inc._(NARI).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: ServiceAgreement_10_INTEGRAL_TECHNOLOGIES_INC.htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: ServiceAgreement_14_LifeMD,_Inc._(LFMD,_LFMDP).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: ServiceAgreement_15_Waton_Financial_Ltd.htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: ServiceAgreement_6_Sunrise_Communications_AG_(SNRS).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: ServiceAgreement_9_Coeur_Mining,_Inc._(CDE).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: SupplierAgreement_11_CERUS_CORP_(CERS).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: SupplierAgreement_12_NOVAVAX_INC_(NVAX).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: SupplierAgreement_13_Apollo_Strategic_Growth_Capital_(GBTG).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: SupplierAgreement_14_Brag_House_Holdings,_Inc._(TBH).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: NDA_1_Hemoglobin_Oxygen_Therapeutics_LLC.htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: NDA_2_Bakhu_Holdings,_Corp._(BKUH).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: NDA_3_Starry_Group_Holdings,_Inc..htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: NDA_4_TRxADE_HEALTH,_INC_(MEDS).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - DELETED HTML: NDA_5_BlueRiver_Acquisition_Corp._(BLUAF,_BLUAW,_BLUVF).htm (PDF validated OK)
+2026-06-18 14:45:27 - INFO - ================================================================================
+2026-06-18 14:45:27 - INFO - EMPTY FOLDER CLEANUP PHASE
+2026-06-18 14:45:27 - INFO - ================================================================================
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Agency Agreements\Agency Agreements
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Collaboration\Collaboration
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Development\Development
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Distributor\Distributor
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Endorsement\Endorsement
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Franchise\Franchise
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Hosting\Hosting
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\IP\IP
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Maintenance\Maintenance
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Manufacturing\Manufacturing
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Marketing\Marketing
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Outsourcing\Outsourcing
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Promotion\Promotion
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Reseller\Reseller
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Service\Service
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Sponsorship\Sponsorship
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Supply\Supply
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Transportation\Transportation
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Affiliate Agreement
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Affiliate_Agreements
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Agency Agreements
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Collaboration
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Commercial Contracts (Part II-A)
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Consulting Agreements
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Co_Branding
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Development
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Distributor
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Endorsement
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Endorsement Agreement
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Franchise
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Hosting
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\IP
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Joint Venture
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Joint Venture _ Filing
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\License_Agreements
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Maintenance
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Manufacturing
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Marketing
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Non_Compete_Non_Solicit
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Outsourcing
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Part_I
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Part_II
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Part_III
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Promotion
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Reseller
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Service
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Sponsorship
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Strategic Alliance
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Supply
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\contracts\Transportation
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\amendments
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\ndas
+2026-06-18 14:45:27 - INFO - Deleted empty folder: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw\other
+2026-06-18 14:45:27 - INFO - ================================================================================
+2026-06-18 14:45:27 - INFO - CONVERSION SUMMARY
+2026-06-18 14:45:27 - INFO - ================================================================================
+2026-06-18 14:45:27 - INFO - Dry-run mode:                 NO
+2026-06-18 14:45:27 - INFO - Total HTML files found:       19
+2026-06-18 14:45:27 - INFO - Successfully converted:       0
+2026-06-18 14:45:27 - INFO - Failed conversions:           0
+2026-06-18 14:45:27 - INFO - Skipped (already exist):      19
+2026-06-18 14:45:27 - INFO - HTML/PDF pairs found:         19
+2026-06-18 14:45:27 - INFO - HTML files deleted:           19
+2026-06-18 14:45:27 - INFO - HTML files retained:          0
+2026-06-18 14:45:27 - INFO - Invalid PDFs (HTML kept):     0
+2026-06-18 14:45:27 - INFO - Empty folders deleted:        53
+2026-06-18 14:45:27 - INFO - Output folder:                C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\pdf
+2026-06-18 14:45:27 - INFO - ================================================================================

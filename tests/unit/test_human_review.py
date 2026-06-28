@@ -35,6 +35,7 @@ from unittest.mock import patch
 import pytest
 
 import agent.human_review as hr_module
+import agent.feedback_writer as fw_module
 from schemas.review import ReviewDecision, ReviewItem
 
 
@@ -43,22 +44,29 @@ from schemas.review import ReviewDecision, ReviewItem
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def isolated_queue(tmp_path):
+def isolated_queue(tmp_path, monkeypatch):
     """
-    Patch the three path constants in agent.human_review to point at a
-    fresh temp directory for every test. This ensures tests are fully
-    isolated: no test sees queue state from any other test.
+    Patch queue paths (human_review) AND feedback log paths (feedback_writer)
+    to a fresh temp directory for every test.
+
+    The feedback log redirect is required because record_review_decision()
+    calls save_feedback() internally. Without this patch, any test that
+    calls record_review_decision() writes to the real data/feedback/feedback_log.jsonl.
     """
     queue_dir = tmp_path / "review_queue"
     pending_file = queue_dir / "pending_reviews.json"
     resolved_file = queue_dir / "resolved_reviews.json"
 
-    with (
-        patch.object(hr_module, "_QUEUE_DIR", queue_dir),
-        patch.object(hr_module, "_PENDING_FILE", pending_file),
-        patch.object(hr_module, "_RESOLVED_FILE", resolved_file),
-    ):
-        yield
+    feedback_dir = tmp_path / "feedback"
+    feedback_log = feedback_dir / "feedback_log.jsonl"
+
+    monkeypatch.setattr(hr_module, "_QUEUE_DIR", queue_dir)
+    monkeypatch.setattr(hr_module, "_PENDING_FILE", pending_file)
+    monkeypatch.setattr(hr_module, "_RESOLVED_FILE", resolved_file)
+    monkeypatch.setattr(fw_module, "_FEEDBACK_DIR", feedback_dir)
+    monkeypatch.setattr(fw_module, "_FEEDBACK_LOG", feedback_log)
+
+    yield
 
 
 # ---------------------------------------------------------------------------

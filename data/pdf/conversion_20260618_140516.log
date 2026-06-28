@@ -1,0 +1,15 @@
+2026-06-18 14:05:16 - INFO - Source directory: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\raw
+2026-06-18 14:05:16 - INFO - Output directory: C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\pdf
+2026-06-18 14:05:16 - INFO - Found 19 HTML file(s) to process
+2026-06-18 14:05:16 - INFO - ================================================================================
+2026-06-18 14:05:16 - INFO - Starting HTML to PDF conversion...
+2026-06-18 14:05:16 - INFO - ================================================================================
+2026-06-18 14:06:03 - INFO - ================================================================================
+2026-06-18 14:06:03 - INFO - CONVERSION SUMMARY
+2026-06-18 14:06:03 - INFO - ================================================================================
+2026-06-18 14:06:03 - INFO - Total HTML files found:    19
+2026-06-18 14:06:03 - INFO - Successfully converted:    19
+2026-06-18 14:06:03 - INFO - Failed conversions:        0
+2026-06-18 14:06:03 - INFO - Skipped (already exist):   0
+2026-06-18 14:06:03 - INFO - Output folder:             C:\Users\Hiloni Vora\Source Code\Legal AI Assistant\legal-agent\data\pdf
+2026-06-18 14:06:03 - INFO - ================================================================================
