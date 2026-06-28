@@ -271,6 +271,9 @@ def test_major_deviation_with_precedent_is_medium(tmp_path):
     assert f.precedent_applied is True
     assert f.precedent_note is not None
     # Note format changed (Stage 5): now contains feedback_id and similarity score.
+    # Assertion content changed (fb_test-cal-001 instead of "California"/date string) because
+    # the JSONL record no longer exposes approved_text_fragment or approval_date at top level.
+    # The BEHAVIOR being verified is unchanged: major deviation + matching precedent -> MEDIUM.
     assert "fb_test-cal-001" in f.precedent_note
 
 

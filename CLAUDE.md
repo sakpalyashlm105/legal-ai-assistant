@@ -114,13 +114,15 @@ This is NOT a production deployment. It's a capstone with graded checkpoints (St
 **Stage 5 key changes to `risk_engine.py`:**
 - `FEEDBACK_LOG_PATH`: `data/processed/feedback_log.json` → `data/feedback/feedback_log.jsonl`
 - `_load_feedback_log()`: flat JSON array → line-by-line `FeedbackRecord`; filters to `approved_for_precedent=True + feedback_status=approved_precedent + final_risk=MEDIUM`; malformed lines → WARNING + skip, never raise
-- `_find_precedent()`: plain substring → `_best_window_score()` from `evidence_verifier.py` at `FUZZY_MATCH_THRESHOLD=0.70`; returns `(FeedbackRecord, score)` tuple
+- `_find_precedent()`: plain substring → `_best_window_score()` from `evidence_verifier.py` at `FUZZY_MATCH_THRESHOLD=0.70`; returns `(FeedbackRecord, score)` tuple. **Function name note:** Stage 1 recon notes used `_windowed_similarity` — that name is wrong. The actual function is `_best_window_score` (one implementation, no duplicate).
 - `_apply_precedent_downgrade()`: REG-001 independent check (`is_clause_present` guard); `precedent_note` now records `feedback_id`, match score, match reason, risk trajectory
 - `flag_risks()`: `+document_type: Optional[str] = None` for scope matching
 
 **Real verification (both required, both done):**
 - Part A direct: `_find_precedent("Governing Law / Jurisdiction", illinois_text)` → `fb_rev-medium-report-001`, score=1.00, HIGH→MEDIUM applied
 - Part B pipeline: Bakhu NDA end-to-end. Governing Law / Jurisdiction downgraded HIGH→MEDIUM at 0.71 text similarity against the Illinois precedent. 6 missing clauses all `HIGH, precedent_applied=False` — **REG-001 held on real data**.
+
+**Known limitation — jurisdiction-blind matching:** Precedent matching currently compares `clause_category` + text similarity only. `jurisdiction` is accepted as compatible whenever either side is `None`, which is always true today since jurisdiction is never extracted from real documents. This means a precedent from one jurisdiction can be applied to a clause from a different (or unknown) jurisdiction if the boilerplate phrasing is similar enough — observable in the Bakhu NDA run (Illinois precedent applied at 0.71 similarity). Not a bug (consistent with locked Step 12 design); candidate for future work alongside the already-deferred `risk_policy.yaml` / document-type-aware rules.
 
 **Test isolation confirmed solid:** `test_feedback_writer.py` uses `autouse=True`; `test_feedback_curation.py` and `test_risk_engine_precedent.py` use explicit-parameter fixture on every test. No test writes to the real `data/feedback/feedback_log.jsonl`.
 
