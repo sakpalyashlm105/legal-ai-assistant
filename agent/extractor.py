@@ -140,6 +140,8 @@ def _call_llm(chunks: list[DocumentChunk]) -> list[ExtractedClause]:
         temperature=0.0,
         response_format={"type": "json_object"},
     )
+    from agent.metrics_writer import accumulate_tokens
+    accumulate_tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
 
     raw_content = response.choices[0].message.content
 

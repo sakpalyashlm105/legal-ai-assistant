@@ -153,6 +153,8 @@ def _call_llm(
         temperature=0.0,
         response_format={"type": "json_object"},
     )
+    from agent.metrics_writer import accumulate_tokens
+    accumulate_tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
 
     raw = response.choices[0].message.content
     try:

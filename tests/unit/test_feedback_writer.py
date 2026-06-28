@@ -575,3 +575,87 @@ class TestPositivePrecedentPath:
 
         stored = json.loads(isolated_feedback_log.read_text(encoding="utf-8").strip())
         assert stored["feedback_status"] == "pending_precedent_review"
+
+
+# ---------------------------------------------------------------------------
+# i. possible_clause_under_different_heading trigger handling
+# ---------------------------------------------------------------------------
+
+
+class TestPossibleClauseUnderDifferentHeading:
+    """
+    Verify that feedback decisions on 'possible_clause_under_different_heading'
+    items are captured correctly and never silently coerced into is_clause_present=True.
+
+    This trigger is set by node_verify_missing_clauses (Step 15) when a clause
+    was not extracted but keyword evidence was found. The human must confirm whether
+    the clause is genuinely absent or present under a non-standard heading.
+
+    Until the human confirms presence, the system treats the clause as NOT present
+    for eligibility purposes — preventing promotion to a language precedent on the
+    basis of unverified keyword hits alone.
+    """
+
+    def test_approve_on_keyword_escalation_is_not_eligible(self, isolated_feedback_log):
+        """
+        A human approving a 'possible_clause_under_different_heading' item should NOT
+        be treated as confirming clause presence for precedent purposes.
+        is_clause_present must be False, feedback_status must be not_eligible.
+        """
+        item = _make_item(
+            review_id="rev-keyword-001",
+            trigger_reason="possible_clause_under_different_heading",
+            risk_level="HIGH",
+            fact_found="Governing Law clause was NOT extracted by the extractor.",
+            clause_category="Governing Law / Jurisdiction",
+            evidence_match_type=None,
+            page_reference_valid=None,
+        )
+        decision = _make_decision(
+            review_id="rev-keyword-001",
+            action="approve",
+            mark_clause_language_as_precedent_candidate=True,
+        )
+        record = save_feedback(item, decision)
+
+        # Human said "approve" but is_clause_present must still be False
+        # because the trigger is possible_clause_under_different_heading —
+        # the clause was never actually extracted and verified.
+        assert record.is_clause_present is False
+        # HIGH risk with is_clause_present=False → always not_eligible
+        assert record.feedback_status == "not_eligible"
+        # The reviewer's intent IS preserved (audit trail)
+        assert record.clause_language_accepted_as_business_precedent is True
+        # But approved_for_precedent must remain False (Stage 4 controls this)
+        assert record.approved_for_precedent is False
+
+    def test_correct_on_keyword_escalation_captures_decision(self, isolated_feedback_log):
+        """
+        A human correcting a 'possible_clause_under_different_heading' item
+        (e.g. adjusting risk level after confirming absence) is persisted faithfully.
+        """
+        item = _make_item(
+            review_id="rev-keyword-002",
+            trigger_reason="possible_clause_under_different_heading",
+            risk_level="HIGH",
+            fact_found="Assignment clause was NOT extracted by the extractor.",
+            clause_category="Assignment",
+            evidence_match_type=None,
+            page_reference_valid=None,
+        )
+        decision = _make_decision(
+            review_id="rev-keyword-002",
+            action="correct",
+            corrected_value={"clause_type": "Assignment", "is_present": True},
+            corrected_risk_level="MEDIUM",
+            reviewer_note="Found under 'Transfer of Rights' heading — confirmed present.",
+        )
+        record = save_feedback(item, decision)
+
+        assert record.review_action == "correct"
+        assert record.final_risk == "MEDIUM"
+        assert record.reviewer_comment == "Found under 'Transfer of Rights' heading — confirmed present."
+        # Still not_eligible: even with corrected risk, is_clause_present=False
+        # because _derive_is_clause_present uses trigger_reason, not corrected_value
+        assert record.is_clause_present is False
+        assert record.feedback_status == "not_eligible"

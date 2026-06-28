@@ -41,6 +41,9 @@ from agent.metrics_writer import (
     build_metrics,
     calculate_cost,
     write_metrics,
+    reset_run_accumulator,
+    accumulate_tokens,
+    get_run_accumulator,
     METRICS_LOG_PATH,
 )
 
@@ -308,3 +311,51 @@ def test_zero_token_run_cost_is_zero():
     assert m.prompt_tokens == 0
     assert m.completion_tokens == 0
     assert m.embedding_tokens == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests 11-14: Accumulator (reset, accumulate, no leakage between runs)
+# ---------------------------------------------------------------------------
+
+def test_accumulator_starts_empty_after_reset():
+    reset_run_accumulator()
+    acc = get_run_accumulator()
+    assert acc["prompt_tokens"] == 0
+    assert acc["completion_tokens"] == 0
+    assert acc["embedding_tokens"] == 0
+
+
+def test_accumulate_tokens_adds_correctly():
+    reset_run_accumulator()
+    accumulate_tokens(prompt=100, completion=50)
+    accumulate_tokens(prompt=200, completion=80, embedding=300)
+    acc = get_run_accumulator()
+    assert acc["prompt_tokens"] == 300
+    assert acc["completion_tokens"] == 130
+    assert acc["embedding_tokens"] == 300
+
+
+def test_accumulate_embedding_kwarg_only():
+    reset_run_accumulator()
+    accumulate_tokens(embedding=500)
+    acc = get_run_accumulator()
+    assert acc["prompt_tokens"] == 0
+    assert acc["completion_tokens"] == 0
+    assert acc["embedding_tokens"] == 500
+
+
+def test_accumulator_reset_clears_between_runs():
+    """Simulate two separate pipeline legs — tokens must not leak from leg 1 to leg 2."""
+    # Leg 1
+    reset_run_accumulator()
+    accumulate_tokens(prompt=1000, completion=400, embedding=800)
+    leg1 = get_run_accumulator()
+    assert leg1["prompt_tokens"] == 1000
+
+    # Leg 2 starts fresh
+    reset_run_accumulator()
+    accumulate_tokens(prompt=50, completion=20)
+    leg2 = get_run_accumulator()
+    assert leg2["prompt_tokens"] == 50       # leg 1 tokens must not carry over
+    assert leg2["completion_tokens"] == 20
+    assert leg2["embedding_tokens"] == 0

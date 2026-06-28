@@ -251,6 +251,8 @@ def extract_page_with_vision(
                 temperature=0,
                 max_tokens=4096,  # generous ceiling for a single page of text
             )
+            from agent.metrics_writer import accumulate_tokens
+            accumulate_tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
 
             # The actual text reply lives at response.choices[0].message.content
             transcribed_text = response.choices[0].message.content or ""

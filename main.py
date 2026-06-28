@@ -58,6 +58,9 @@ def _to_report_md(report_obj) -> str | None:
     if report_obj is None:
         return None
     if isinstance(report_obj, dict):
+        # Amendment reports store pre-rendered markdown directly
+        if report_obj.get("_is_amendment_report"):
+            return report_obj.get("_markdown", "")
         report_obj = LegalDocumentReport(**report_obj)
     return render_markdown(report_obj)
 

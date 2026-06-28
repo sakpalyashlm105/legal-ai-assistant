@@ -48,6 +48,56 @@ METRICS_LOG_PATH = Path(__file__).parent.parent / "data" / "metrics" / "metrics_
 
 
 # ---------------------------------------------------------------------------
+# Per-run token accumulator
+#
+# Reset before each _app.invoke() leg in orchestrator.py, then each LLM call
+# site calls accumulate_tokens() to add its usage. The orchestrator reads the
+# totals at each exit point to build the PipelineRunMetrics record.
+#
+# Single-process, single-threaded (LangGraph runs nodes sequentially in this
+# capstone setup) so a module-level dict is safe without locks.
+# ---------------------------------------------------------------------------
+
+_run_accumulator: dict = {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "embedding_tokens": 0,
+}
+
+
+def reset_run_accumulator() -> None:
+    """Reset token accumulator to zero before each _app.invoke() call."""
+    global _run_accumulator
+    _run_accumulator = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "embedding_tokens": 0,
+    }
+
+
+def accumulate_tokens(
+    prompt: int = 0,
+    completion: int = 0,
+    embedding: int = 0,
+) -> None:
+    """
+    Add token counts from one LLM call to the per-run accumulator.
+
+    Call this immediately after every client.chat.completions.create() and
+    client.embeddings.create() call, passing response.usage values.
+    For embedding calls use the `embedding` kwarg; prompt+completion for chat.
+    """
+    _run_accumulator["prompt_tokens"] += prompt
+    _run_accumulator["completion_tokens"] += completion
+    _run_accumulator["embedding_tokens"] += embedding
+
+
+def get_run_accumulator() -> dict:
+    """Return a snapshot of the current per-run accumulator totals."""
+    return dict(_run_accumulator)
+
+
+# ---------------------------------------------------------------------------
 # Cost calculation (pure, testable)
 # ---------------------------------------------------------------------------
 

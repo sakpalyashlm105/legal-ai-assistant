@@ -93,6 +93,13 @@ def _derive_is_clause_present(item: ReviewItem) -> bool:
     """Determine clause presence from ReviewItem fields, without querying storage."""
     if item.trigger_reason == "missing_critical_clause":
         return False
+    # "possible_clause_under_different_heading" means the extractor could not
+    # confirm the clause is present — it may exist under a non-standard heading,
+    # but until a human confirms it, treat it as NOT present for eligibility
+    # purposes.  A human's eventual "approve" decision does NOT promote this to
+    # a language precedent (clause_language_accepted controls that separately).
+    if item.trigger_reason == "possible_clause_under_different_heading":
+        return False
     if item.evidence_match_type == "not_found":
         return False
     if item.fact_found and "absent" in item.fact_found.lower():

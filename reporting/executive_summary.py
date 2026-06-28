@@ -323,6 +323,8 @@ def _call_llm(prompt_vars: dict) -> str:
         temperature=0.3,  # low temperature: consistent, controlled prose
         max_tokens=300,
     )
+    from agent.metrics_writer import accumulate_tokens
+    accumulate_tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
     return response.choices[0].message.content.strip()
 
 

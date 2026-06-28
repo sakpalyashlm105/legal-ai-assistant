@@ -142,6 +142,8 @@ def embed_texts(texts: list[str]) -> np.ndarray:
         model=EMBEDDING_MODEL,
         input=texts,
     )
+    from agent.metrics_writer import accumulate_tokens
+    accumulate_tokens(embedding=response.usage.total_tokens)
 
     # response.data is a list of Embedding objects, in the same order as `texts`
     vectors = np.array(
@@ -273,6 +275,8 @@ def _rerank_with_llm(query: str, chunks: list[DocumentChunk]) -> list[DocumentCh
             temperature=0,
             max_tokens=64,
         )
+        from agent.metrics_writer import accumulate_tokens
+        accumulate_tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
         raw = (response.choices[0].message.content or "").strip()
         # Parse JSON array like [3, 1, 2]
         order = json.loads(raw)

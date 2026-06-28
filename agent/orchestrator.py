@@ -49,7 +49,9 @@ Never log full source_text, clause contents, or corrected_value payloads.
 """
 
 import logging
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
@@ -77,8 +79,59 @@ from reporting.executive_summary import generate_executive_summary
 from schemas.clause import ExtractedClause
 from schemas.risk import RiskFinding
 from schemas.review import ReviewDecision, ReviewItem
+from agent.metrics_writer import (
+    reset_run_accumulator,
+    get_run_accumulator,
+    build_metrics,
+    write_metrics,
+)
+from agent.missing_clause_verifier import verify_missing_clauses as _verify_missing_clauses
+from agent.amendment_analyzer import analyze_amendment as _analyze_amendment, render_amendment_report
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Metrics helpers
+# ---------------------------------------------------------------------------
+
+def _derive_counters(snap_values: dict) -> dict:
+    """
+    Derive activity counters from the final LangGraph state snapshot.
+
+    All values come from existing state fields — no new instrumentation is
+    needed. Returns a dict whose keys match build_metrics() kwargs.
+    """
+    doc_dict = snap_values.get("doc") or {}
+    pages = doc_dict.get("pages", [])
+    # Count pages that went through Vision OCR
+    ocr_pages = [p for p in pages if p.get("method") == "ocr_vision"]
+
+    clauses_raw = snap_values.get("clauses", [])
+    classification = snap_values.get("classification") or {}
+
+    # Retry count: classifier retries + per-clause extraction retries
+    low_confidence_retries = (
+        (classification.get("retry_count") or 0)
+        + sum(c.get("retry_count", 0) for c in clauses_raw)
+    )
+    # ToT was invoked for any clause whose tot_result field is not None
+    tot_invocations = sum(1 for c in clauses_raw if c.get("tot_result") is not None)
+    # HITL escalations = number of review items queued
+    hitl_count = len(snap_values.get("review_items", []))
+    # Guardrail blocks = guardrail results that did not pass
+    guardrail_blocks = sum(
+        1 for g in snap_values.get("guardrail_results", []) if not g.get("passed")
+    )
+
+    return {
+        "ocr_fallback_triggered": len(ocr_pages) > 0,
+        "ocr_fallback_page_count": len(ocr_pages),
+        "low_confidence_retry_count": low_confidence_retries,
+        "tot_invocation_count": tot_invocations,
+        "hitl_escalation_count": hitl_count,
+        "guardrail_block_count": guardrail_blocks,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +185,10 @@ class PipelineState(TypedDict):
     # produced by node_verify_final_claims after flag_risks.
     claim_verification_results: List[Dict]
     expansions: List[Dict]          # serialised ClauseExpansionResult list (one per clause)
+    # missing_clause_escalations: escalations from verify_missing_clauses (Step 15).
+    # Each dict has clause_type, possible_clause_under_different_heading, keyword_match_count, note.
+    missing_clause_escalations: List[Dict]
+    amendment_analysis: Optional[Dict]   # populated by node_analyze_amendment (Amendment path only)
     review_items: List[Dict]
     needs_human_review: bool
     human_decisions: List[Dict]
@@ -377,6 +434,89 @@ def node_verify_clauses(state: PipelineState) -> Dict[str, Any]:
         sum(1 for e in evidence_results if not e["evidence_found"]),
     )
     return {"evidence_results": evidence_results}
+
+
+def node_verify_missing_clauses(state: PipelineState) -> Dict[str, Any]:
+    """
+    Step 15: stricter absence verification before risk scoring.
+
+    For every clause marked absent (is_present=False), search all document
+    chunks for synonym/related keywords from CLAUSE_RELATED_KEYWORDS.
+
+    If keyword evidence is found:
+        → An escalation dict is recorded in state['missing_clause_escalations'].
+        → A HITL ReviewItem is queued so a human can confirm whether the clause
+          is truly absent or appears under a non-standard heading.
+        → The absence finding stays absent (risk remains HIGH) until the human
+          overrides it.  REG-001 is fully preserved — this node never auto-marks
+          a clause as present.
+
+    If no keyword evidence is found:
+        → The clause is genuinely absent.  No escalation.  HIGH stays HIGH.
+    """
+    if state.get("error"):
+        return {}
+
+    clauses_raw = state.get("clauses", [])
+    chunks_raw = state.get("chunks", [])
+    if not clauses_raw or not chunks_raw:
+        return {"missing_clause_escalations": []}
+
+    from schemas.clause import ExtractedClause
+    from schemas.chunk import DocumentChunk
+
+    try:
+        clauses = [ExtractedClause(**c) for c in clauses_raw]
+        chunks = [DocumentChunk(**c) for c in chunks_raw]
+    except Exception as exc:
+        logger.error("node_verify_missing_clauses: deserialization failed: %s", exc)
+        return {"missing_clause_escalations": []}
+
+    escalations = _verify_missing_clauses(clauses, chunks)
+
+    # For each escalation, queue a HITL item so the human can confirm
+    if escalations:
+        thread_id = state.get("_thread_id", "unknown-thread")
+        doc_hash = state.get("document_hash", "")
+        doc_name = state.get("doc", {}).get("file_name", "unknown.pdf")
+        doc_type = (state.get("classification") or {}).get("document_type")
+
+        for esc in escalations:
+            item = ReviewItem(
+                review_id=str(uuid.uuid4()),
+                document_hash=doc_hash,
+                document_name=doc_name,
+                clause_category=esc["clause_type"],
+                source_text=(
+                    f"[Clause not extracted — related keywords found {esc['keyword_match_count']}x "
+                    f"across document chunks. Possible non-standard heading.]"
+                ),
+                trigger_reason="possible_clause_under_different_heading",
+                ai_finding_summary=(
+                    f"ABSENT | {esc['clause_type']} | HIGH | "
+                    f"Keyword evidence found ({esc['keyword_match_count']} hits) — "
+                    f"possible_clause_under_different_heading=True"
+                ),
+                risk_level="HIGH",
+                fact_found=f"{esc['clause_type']} clause was NOT extracted by the extractor.",
+                risk_rationale=esc["note"],
+                thread_id=thread_id,
+                document_type_context=doc_type,
+            )
+            add_to_review_queue(item)
+            logger.info(
+                "node_verify_missing_clauses: queued HITL item for '%s' "
+                "(keyword_match_count=%d)",
+                esc["clause_type"], esc["keyword_match_count"],
+            )
+
+    n_escalated = len(escalations)
+    n_absent = sum(1 for c in clauses if not c.is_present)
+    logger.info(
+        "node_verify_missing_clauses: %d absent clauses checked, %d escalated to HITL",
+        n_absent, n_escalated,
+    )
+    return {"missing_clause_escalations": escalations}
 
 
 def node_verify_final_claims(state: PipelineState) -> Dict[str, Any]:
@@ -1031,6 +1171,15 @@ def node_validate_final_output(state: PipelineState) -> Dict[str, Any]:
         logger.warning("node_validate_final_output: no generated_report in state -- skipping")
         return {}
 
+    # Amendment reports are pre-rendered markdown — the structural checks that
+    # validate_final_output runs (disclaimer presence, clause count consistency,
+    # schema completeness, guardrail-to-report disconnect) all assume a
+    # LegalDocumentReport object. Skip gracefully; the disclaimer is already
+    # embedded in render_amendment_report().
+    if report_dict.get("_is_amendment_report"):
+        logger.info("node_validate_final_output: skipping structural checks for amendment report")
+        return {}
+
     from schemas.report import LegalDocumentReport
     try:
         report = LegalDocumentReport(**report_dict)
@@ -1105,6 +1254,86 @@ def node_finalize(state: PipelineState) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Amendment path nodes (Step 14 — routing + analysis only)
+# ---------------------------------------------------------------------------
+
+def node_analyze_amendment(state: PipelineState) -> Dict[str, Any]:
+    """
+    Amendment path: one LLM call to extract what the amendment modifies.
+
+    Runs instead of the standard extract_clauses → compare_to_templates →
+    flag_risks pipeline when document_type == "Amendment".
+
+    Base-agreement retrieval and cross-referencing is explicitly deferred
+    (see FUTURE_WORK in agent/amendment_analyzer.py and CLAUDE.md).
+    """
+    if state.get("error"):
+        return {}
+
+    doc_dict = state.get("doc") or {}
+    full_text = doc_dict.get("full_text", "")
+    if not full_text:
+        logger.warning("node_analyze_amendment: no full_text in state")
+        return {"amendment_analysis": {"error": "no_text", "modified_clauses": [], "amendment_summary": "", "base_agreement_ref": None, "analysis_confidence": 0.0}}
+
+    logger.info("node_analyze_amendment: running amendment LLM analysis")
+    analysis = _analyze_amendment(full_text)
+    logger.info(
+        "node_analyze_amendment: found %d modified clauses, confidence=%.2f",
+        len(analysis.get("modified_clauses", [])),
+        analysis.get("analysis_confidence", 0.0),
+    )
+    return {"amendment_analysis": analysis}
+
+
+def node_generate_amendment_report(state: PipelineState) -> Dict[str, Any]:
+    """
+    Render the amendment summary report and store it as generated_report.
+
+    Produces a short markdown report with the Amendment Summary section in
+    place of the standard 10-row clause table.
+    """
+    if state.get("error"):
+        return {}
+
+    analysis = state.get("amendment_analysis") or {}
+    doc_dict = state.get("doc") or {}
+    doc_name = doc_dict.get("file_name", "unknown.pdf")
+    doc_hash = state.get("document_hash", "")
+    total_pages = doc_dict.get("total_pages", 0)
+    classification_confidence = (state.get("classification") or {}).get("confidence", 0.0)
+
+    md = render_amendment_report(
+        document_name=doc_name,
+        document_hash=doc_hash,
+        total_pages=total_pages,
+        classification_confidence=classification_confidence,
+        analysis=analysis,
+    )
+
+    # Persist to data/processed/ (same pattern as standard report)
+    import os
+    processed_dir = Path(__file__).parent.parent / "data" / "processed"
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    hash_prefix = doc_hash[:16] if doc_hash else "unknown"
+    md_path = processed_dir / f"{hash_prefix}_amendment.md"
+    md_path.write_text(md, encoding="utf-8")
+
+    logger.info(
+        "node_generate_amendment_report: written to %s (%d chars)", md_path, len(md)
+    )
+
+    # Store as generated_report using a minimal dict that main.py can render directly
+    # (it's markdown, not a LegalDocumentReport — so we store the raw md instead)
+    return {
+        "generated_report": {
+            "_is_amendment_report": True,
+            "_markdown": md,
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
 
@@ -1121,6 +1350,19 @@ def route_after_validate_scope(state: PipelineState) -> str:
 def route_after_scan_injection(state: PipelineState) -> str:
     """Route to chunk or finalize if prompt injection was detected (blocking)."""
     return "finalize" if state.get("error") else "chunk"
+
+
+def route_after_classify(state: PipelineState) -> str:
+    """
+    Route to the amendment analysis path or standard extraction path.
+
+    Amendment path: analyze_amendment → generate_amendment_report → finalize
+    Standard path : extract_clauses → ... → build_review_items → ...
+    """
+    if state.get("error"):
+        return "finalize"
+    doc_type = (state.get("classification") or {}).get("document_type", "")
+    return "analyze_amendment" if doc_type == "Amendment" else "extract_clauses"
 
 
 def route_after_build_review(state: PipelineState) -> str:
@@ -1148,13 +1390,17 @@ def _build_graph():
     g.add_node("validate_input",         node_validate_input)
     g.add_node("validate_scope",         node_validate_scope)
     g.add_node("scan_prompt_injection",  node_scan_prompt_injection)
-    g.add_node("verify_clauses",         node_verify_clauses)
+    g.add_node("verify_clauses",          node_verify_clauses)
+    g.add_node("verify_missing_clauses", node_verify_missing_clauses)
     g.add_node("verify_final_claims",    node_verify_final_claims)
 
     # -- Core pipeline nodes (Step 8) --
-    g.add_node("extract",            node_extract)
-    g.add_node("chunk",              node_chunk)
-    g.add_node("classify",           node_classify)
+    g.add_node("extract",                    node_extract)
+    g.add_node("chunk",                      node_chunk)
+    g.add_node("classify",                   node_classify)
+    # Amendment path (Step 14)
+    g.add_node("analyze_amendment",          node_analyze_amendment)
+    g.add_node("generate_amendment_report",  node_generate_amendment_report)
     g.add_node("extract_clauses",           node_extract_clauses)
     g.add_node("expand_clause_boundaries",  node_expand_clause_boundaries)
     g.add_node("flag_risks",                node_flag_risks)
@@ -1191,13 +1437,24 @@ def _build_graph():
     )
 
     # Core pipeline (unchanged)
-    g.add_edge("chunk",          "classify")
-    g.add_edge("classify",       "extract_clauses")
+    g.add_edge("chunk",    "classify")
+    # After classify: route to amendment path or standard extraction path
+    g.add_conditional_edges(
+        "classify",
+        route_after_classify,
+        {"analyze_amendment": "analyze_amendment", "extract_clauses": "extract_clauses", "finalize": "finalize"},
+    )
+    # Amendment path: analyze → report → validate_final_output → finalize
+    # validate_final_output skips structural clause checks for amendment reports
+    # (disclaimer already embedded; no clause table to validate).
+    g.add_edge("analyze_amendment",         "generate_amendment_report")
+    g.add_edge("generate_amendment_report", "validate_final_output")
 
     # Expand clause boundaries after extraction, then evidence-verify, then risk-score
     g.add_edge("extract_clauses",          "expand_clause_boundaries")
-    g.add_edge("expand_clause_boundaries", "verify_clauses")
-    g.add_edge("verify_clauses",           "flag_risks")
+    g.add_edge("expand_clause_boundaries",  "verify_clauses")
+    g.add_edge("verify_clauses",            "verify_missing_clauses")
+    g.add_edge("verify_missing_clauses",    "flag_risks")
 
     # Final claim verification after risk scoring, before HITL check
     g.add_edge("flag_risks",           "verify_final_claims")
@@ -1258,6 +1515,10 @@ def run_pipeline(
 
     config = {"configurable": {"thread_id": thread_id}}
 
+    reset_run_accumulator()
+    _run_started_at = datetime.now(timezone.utc)
+    _t0 = time.perf_counter()
+
     initial: PipelineState = {
         "pdf_path": pdf_path,
         "_thread_id": thread_id,
@@ -1270,6 +1531,8 @@ def run_pipeline(
         "comparisons": [],
         "findings": [],
         "expansions": [],
+        "missing_clause_escalations": [],
+        "amendment_analysis": None,
         "guardrail_results": [],
         "evidence_results": [],
         "claim_verification_results": [],
@@ -1292,9 +1555,18 @@ def run_pipeline(
 
     guardrail_results = snap.values.get("guardrail_results", [])
 
+    _latency = time.perf_counter() - _t0
+    _tokens = get_run_accumulator()
+
     if is_interrupted:
         logger.info("run_pipeline INTERRUPTED thread=%s next=%s", thread_id, snap.next)
         review_items = snap.values.get("review_items", [])
+        _counters = _derive_counters(snap.values)
+        write_metrics(build_metrics(
+            thread_id=thread_id, pdf_path=pdf_path, started_at=_run_started_at,
+            run_status="interrupted", total_latency_seconds=_latency,
+            **_tokens, **_counters,
+        ))
         return {
             "thread_id": thread_id,
             "status": "interrupted",
@@ -1309,6 +1581,12 @@ def run_pipeline(
     final = state.get("final_state") or {}
     if not final.get("completed", True) and state.get("error"):
         logger.warning("run_pipeline BLOCKED thread=%s error=%s", thread_id, state.get("error"))
+        _counters = _derive_counters(snap.values)
+        write_metrics(build_metrics(
+            thread_id=thread_id, pdf_path=pdf_path, started_at=_run_started_at,
+            run_status="blocked", total_latency_seconds=_latency,
+            error_message=state.get("error"), **_tokens, **_counters,
+        ))
         return {
             "thread_id": thread_id,
             "status": "blocked",
@@ -1320,6 +1598,12 @@ def run_pipeline(
         }
 
     logger.info("run_pipeline COMPLETED thread=%s", thread_id)
+    _counters = _derive_counters(snap.values)
+    write_metrics(build_metrics(
+        thread_id=thread_id, pdf_path=pdf_path, started_at=_run_started_at,
+        run_status="completed", total_latency_seconds=_latency,
+        **_tokens, **_counters,
+    ))
     return {
         "thread_id": thread_id,
         "status": "completed",
@@ -1371,6 +1655,11 @@ def resume_after_review(thread_id: str, decision: ReviewDecision) -> Dict[str, A
             f"Cannot resume a graph that is already completed or not started."
         )
 
+    # Each resume leg is timed and accumulated independently
+    reset_run_accumulator()
+    _resume_started_at = datetime.now(timezone.utc)
+    _t0 = time.perf_counter()
+
     resolved_item = record_review_decision(decision)
     outcome = apply_human_decision(decision, resolved_item)
 
@@ -1394,7 +1683,18 @@ def resume_after_review(thread_id: str, decision: ReviewDecision) -> Dict[str, A
     snap_after = _app.get_state(config)
     is_still_interrupted = bool(snap_after.next)
 
+    _latency = time.perf_counter() - _t0
+    _tokens = get_run_accumulator()
+    # Use pdf_path from state (stored from the original run)
+    _pdf_path = snap_after.values.get("pdf_path", "")
+
     if is_still_interrupted:
+        _counters = _derive_counters(snap_after.values)
+        write_metrics(build_metrics(
+            thread_id=thread_id, pdf_path=_pdf_path, started_at=_resume_started_at,
+            run_status="interrupted", total_latency_seconds=_latency,
+            **_tokens, **_counters,
+        ))
         return {
             "thread_id": thread_id,
             "status": "interrupted",
@@ -1403,6 +1703,13 @@ def resume_after_review(thread_id: str, decision: ReviewDecision) -> Dict[str, A
             "final_state": None,
             "generated_report": snap_after.values.get("generated_report"),
         }
+
+    _counters = _derive_counters(snap_after.values)
+    write_metrics(build_metrics(
+        thread_id=thread_id, pdf_path=_pdf_path, started_at=_resume_started_at,
+        run_status="completed", total_latency_seconds=_latency,
+        **_tokens, **_counters,
+    ))
     return {
         "thread_id": thread_id,
         "status": "completed",

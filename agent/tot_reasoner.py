@@ -262,6 +262,8 @@ def _call_generator(
         temperature=0.0,
         response_format={"type": "json_object"},
     )
+    from agent.metrics_writer import accumulate_tokens
+    accumulate_tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
 
     raw = response.choices[0].message.content
     data = json.loads(raw)
@@ -306,6 +308,8 @@ def _call_critic(
         temperature=0.0,
         response_format={"type": "json_object"},
     )
+    from agent.metrics_writer import accumulate_tokens
+    accumulate_tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
 
     raw = response.choices[0].message.content
     data = json.loads(raw)
