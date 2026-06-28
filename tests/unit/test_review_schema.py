@@ -101,8 +101,13 @@ def test_decision_approve_valid():
 
 
 def test_decision_reject_valid():
-    """reject is valid with no extra fields."""
-    d = ReviewDecision(review_id="rev-001", action="reject", reviewer_note="Hallucinated text")
+    """reject is valid with reject_category specified."""
+    d = ReviewDecision(
+        review_id="rev-001",
+        action="reject",
+        reviewer_note="Hallucinated text",
+        reject_category="hallucinated_deviation",
+    )
     assert d.action == "reject"
     assert d.reviewer_note == "Hallucinated text"
 
@@ -220,6 +225,7 @@ def test_reject_with_corrected_value_raises():
             review_id="rev-001",
             action="reject",
             corrected_value="something",
+            reject_category="hallucinated_deviation",
         )
     assert "corrected_value must be None" in str(exc_info.value)
 
@@ -234,6 +240,7 @@ def test_reject_with_selected_alternative_raises():
             review_id="rev-001",
             action="reject",
             selected_alternative_id="alt-1",
+            reject_category="hallucinated_deviation",
         )
     assert "selected_alternative_id must be None" in str(exc_info.value)
 

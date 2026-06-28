@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from schemas.clause import ClauseType
 
@@ -125,6 +125,111 @@ class ReviewItem(BaseModel):
         The LangGraph thread/session ID this review item belongs to. This is
         the key that lets the orchestrator resume the correct paused graph
         execution after the human decision is recorded.
+
+    -- REVIEWER CONTEXT FIELDS (added in HITL-deepening pass) --
+
+    template_clause_text : Optional[str]
+        The standard template text for this clause category, if a template
+        exists. Sourced from Step 6's ClauseComparison.template_path content.
+        None when no template is available for this category.
+
+    missing_elements : List[str]
+        Named gaps vs the template identified by the comparator
+        (e.g. ["mutuality", "survival period", "return/destruction obligation"]).
+        Populated from ClauseComparison.deviation_summary parsed list when the
+        comparator provides structured gap data; empty list otherwise.
+        NOTE: ClauseComparison currently stores deviation_summary as a single
+        free-text string, not a structured list. missing_elements is populated
+        by parsing that string at ReviewItem construction time when available.
+
+    extra_risky_language : List[str]
+        Named risky additions vs template (e.g. ["one-sided obligation",
+        "broad company discretion"]). Same source as missing_elements.
+        Empty list when not available.
+
+    fact_found : str
+        Plain factual statement of what was found (no judgment).
+        Example: "The Indemnification clause is absent from the document."
+
+    deviation_found : Optional[str]
+        Plain factual statement of how the clause differs from standard.
+        None when no deviation exists or clause is absent.
+
+    risk_rationale : str
+        The reasoning for WHY this risk level was assigned, distinct from
+        fact_found and deviation_found.
+        Example: "Marked HIGH because template expected mutual indemnification."
+
+    evidence_match_type : Optional[Literal["exact", "fuzzy", "not_found"]]
+        Reused from Step 9's evidence verification result.
+        None when evidence verification was not run for this item.
+
+    evidence_match_score : Optional[float]
+        Fuzzy match score from Step 9, if available. None otherwise.
+
+    page_reference_valid : Optional[bool]
+        Whether the page reference was confirmed valid by Step 9's page
+        verifier. None when page verification was not run.
+
+    extraction_confidence : Optional[float]
+        The clause extractor's confidence score for this clause.
+        NOTE: Only one confidence value exists per clause in this codebase
+        (ExtractedClause.confidence). Both extraction_confidence and
+        llm_confidence are populated from this same field. They are NOT
+        independent signals -- this is documented, not fabricated.
+
+    llm_confidence : Optional[float]
+        Same source as extraction_confidence (see note above).
+
+    previous_chunk_text : Optional[str]
+        Text of the chunk immediately before the source chunk in the document.
+        Fetched via get_local_context() from agent/tot_reasoner.py.
+        None when at the first chunk or chunk list is unavailable.
+
+    next_chunk_text : Optional[str]
+        Text of the chunk immediately after the source chunk in the document.
+        Fetched via get_local_context() from agent/tot_reasoner.py.
+        None when at the last chunk or chunk list is unavailable.
+
+    section_heading : Optional[str]
+        The section heading for this chunk, if available.
+        NOTE: DocumentChunk schema does NOT have a section_heading field
+        (confirmed by inspection of schemas/chunk.py). This field is always
+        None in the current implementation -- documented here so it is not
+        silently assumed to be populated.
+
+    document_type_context : Optional[str]
+        The document type classification (e.g. "NDA", "SERVICE_AGREEMENT")
+        so the reviewer sees what kind of document they are judging this
+        clause in the context of.
+
+    -- CLAUSE EXPANSION FIELDS (added in clause-boundary-expansion pass) --
+
+    expanded_clause_text : Optional[str]
+        The merged text of multiple adjacent chunks that the expander
+        determined belong to the same logical clause group.  None when
+        expansion was not triggered or the source chunk was not available.
+        When populated this is the text that was actually sent to the
+        comparator for template matching -- NOT the original snippet.
+
+    source_chunks_used : List[str]
+        Ordered list of chunk_ids that were merged to form expanded_clause_text.
+        Length > 1 when expansion_triggered=True; length 1 when only the
+        source chunk was used; empty when the clause is absent.
+
+    expansion_triggered : bool
+        True if clause boundary expansion found and merged at least one
+        additional chunk beyond the originally extracted source chunk.
+        False does NOT mean the clause text is wrong -- it means the
+        extractor's snippet was already the complete clause (or the clause
+        is absent).
+
+    expansion_boundary_reason : Optional[str]
+        Why expansion stopped.  Mirrors ClauseExpansionResult.boundary_reason.
+        Values: "absent_or_no_source", "source_not_found",
+                "new_unrelated_heading", "unrelated_content",
+                "max_chunks_reached", "end_of_document".
+        None when expansion was not attempted (e.g., absent clause).
     """
 
     model_config = ConfigDict(
@@ -134,6 +239,7 @@ class ReviewItem(BaseModel):
 
     review_id: str
     document_hash: str
+    document_name: Optional[str] = None
     source_chunk_id: Optional[str] = None
     clause_category: Optional[ClauseType] = None
     source_text: str
@@ -147,6 +253,29 @@ class ReviewItem(BaseModel):
     status: Literal["pending", "resolved"] = "pending"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     thread_id: str
+
+    # Reviewer context fields
+    template_clause_text: Optional[str] = None
+    missing_elements: List[str] = Field(default_factory=list)
+    extra_risky_language: List[str] = Field(default_factory=list)
+    fact_found: str = ""
+    deviation_found: Optional[str] = None
+    risk_rationale: str = ""
+    evidence_match_type: Optional[Literal["exact", "fuzzy", "not_found"]] = None
+    evidence_match_score: Optional[float] = None
+    page_reference_valid: Optional[bool] = None
+    extraction_confidence: Optional[float] = None
+    llm_confidence: Optional[float] = None
+    previous_chunk_text: Optional[str] = None
+    next_chunk_text: Optional[str] = None
+    section_heading: Optional[str] = None  # Always None: DocumentChunk has no section_heading field
+    document_type_context: Optional[str] = None
+
+    # Clause expansion fields
+    expanded_clause_text: Optional[str] = None
+    source_chunks_used: List[str] = Field(default_factory=list)
+    expansion_triggered: bool = False
+    expansion_boundary_reason: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +333,69 @@ class ReviewDecision(BaseModel):
         Reviewer identifier. In this capstone scope this is a plain string
         (e.g. a name or role like "legal_reviewer_1"). Real authentication
         is explicitly out of scope -- this is a documented simplification.
+        Also exposed as reviewer_identifier (same field, no duplication).
+
+    -- STRUCTURED DECISION FIELDS (added in HITL-deepening pass) --
+
+    reason : str
+        The reviewer's stated reason for their decision. REQUIRED (non-empty)
+        when the original ReviewItem's risk_level is "HIGH". Optional for
+        MEDIUM/LOW risk items. Enforced by validate_high_risk_requires_reason.
+        NOTE: The validator checks self.risk_level_on_item (passed at
+        construction time) rather than fetching the item from storage, so
+        callers must supply risk_level_on_item for HIGH-risk decisions.
+
+    risk_level_on_item : Optional[Literal["LOW", "MEDIUM", "HIGH"]]
+        The risk_level of the original ReviewItem. Used ONLY by the
+        validate_high_risk_requires_reason validator -- not persisted as
+        a decision output. Callers should populate this from the ReviewItem
+        being decided on so that the reason-required rule can be enforced.
+
+    reject_category : Optional[Literal[...]]
+        Required when action="reject". Provides a structured classification
+        of why the finding is being discarded, enabling systematic audit of
+        what kinds of AI errors humans are catching.
+        Options:
+          "duplicate_finding"         -- same finding already captured elsewhere
+          "wrong_clause_category"     -- AI categorised it under the wrong type
+          "hallucinated_deviation"    -- AI claimed a deviation that doesn't exist
+          "evidence_mismatch"         -- AI's cited evidence doesn't match the text
+          "low_materiality"           -- finding is real but legally immaterial
+          "template_mismatch"         -- template is wrong for this doc type
+          "not_legally_relevant"      -- finding is outside the scope of review
+
+    corrected_risk_level : Optional[Literal["LOW","MEDIUM","HIGH"]]
+        The corrected risk level when action="correct". Supplements (does not
+        replace) corrected_value -- keeps corrected_value for backward compat.
+
+    corrected_summary : Optional[str]
+        The corrected finding summary when action="correct".
+
+    corrected_rationale : Optional[str]
+        The corrected rationale when action="correct".
+
+    flag_for_regression_dataset : bool
+        If True, this decision is flagged as a candidate for manual curation
+        into the project's regression test dataset
+        (data/evaluation/regression_cases.json).
+
+        THIS NEVER FEEDS INTO MODEL TRAINING OR FINE-TUNING. It only marks
+        this decision as something a human should consider adding to the
+        regression test set, consistent with this project's HITL-not-RLHF
+        philosophy. A human must still manually curate entries into that file;
+        this flag does NOT automatically write anything anywhere.
+
+    mark_clause_language_as_precedent_candidate : bool
+        If True, the reviewer explicitly signals that this clause's actual
+        language is acceptable as a future benchmark — independent of whether
+        they agreed with the AI's finding.
+
+        This is the ONLY permitted source of
+        FeedbackRecord.clause_language_accepted_as_business_precedent.
+        NEVER derived from review_action == "approve" alone.
+        Default False. Setting it makes the record eligible for the separate
+        approve_feedback_as_precedent() curation step but does NOT promote it
+        automatically.
     """
 
     model_config = ConfigDict(
@@ -217,6 +409,24 @@ class ReviewDecision(BaseModel):
     reviewer_note: Optional[str] = None
     decided_at: datetime = Field(default_factory=datetime.utcnow)
     decided_by: Optional[str] = None
+
+    # Structured decision fields
+    reason: str = ""
+    risk_level_on_item: Optional[Literal["LOW", "MEDIUM", "HIGH"]] = None
+    reject_category: Optional[Literal[
+        "duplicate_finding",
+        "wrong_clause_category",
+        "hallucinated_deviation",
+        "evidence_mismatch",
+        "low_materiality",
+        "template_mismatch",
+        "not_legally_relevant",
+    ]] = None
+    corrected_risk_level: Optional[Literal["LOW", "MEDIUM", "HIGH"]] = None
+    corrected_summary: Optional[str] = None
+    corrected_rationale: Optional[str] = None
+    flag_for_regression_dataset: bool = False
+    mark_clause_language_as_precedent_candidate: bool = False
 
     @model_validator(mode="after")
     def validate_action_fields(self) -> "ReviewDecision":
@@ -267,4 +477,31 @@ class ReviewDecision(BaseModel):
                     f"selected_alternative_id is only meaningful for action='select_alternative'."
                 )
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_high_risk_requires_reason(self) -> "ReviewDecision":
+        """
+        HIGH-risk items require a non-empty reason for any decision.
+        MEDIUM and LOW risk items: reason is optional.
+        """
+        if self.risk_level_on_item == "HIGH" and not self.reason.strip():
+            raise ValueError(
+                "reason is required (non-empty) when the original finding has risk_level='HIGH'. "
+                "Provide a brief explanation for your decision so the audit trail is complete."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_reject_requires_category(self) -> "ReviewDecision":
+        """
+        action="reject" requires a reject_category to be specified.
+        """
+        if self.action == "reject" and self.reject_category is None:
+            raise ValueError(
+                "reject_category is required when action='reject'. "
+                "Choose from: duplicate_finding, wrong_clause_category, "
+                "hallucinated_deviation, evidence_mismatch, low_materiality, "
+                "template_mismatch, not_legally_relevant."
+            )
         return self

@@ -258,11 +258,20 @@ def test_interrupt_fires_for_missing_critical_clause():
     assert snap["is_paused"], f"Graph should be paused but next={snap['next']}"
     print(f"  next node          : {snap['next']}")
 
-    # ReviewItem must be in the persistent queue with correct thread_id
+    # ReviewItem must be in the persistent queue with correct thread_id.
+    # Step 9 wiring adds verify_final_claims, which can also enqueue items with
+    # trigger_reason="evidence_verification_failure" -- all three are valid HITL triggers.
+    VALID_TRIGGERS = ("missing_critical_clause", "high_risk_finding", "evidence_verification_failure")
     pending = hr_module.get_pending_reviews()
     assert len(pending) >= 1
-    assert pending[0].thread_id == thread_id
-    assert pending[0].trigger_reason in ("missing_critical_clause", "high_risk_finding")
+    assert all(item.thread_id == thread_id for item in pending), (
+        f"All queued items must have thread_id={thread_id!r}; "
+        f"got: {[i.thread_id for i in pending]}"
+    )
+    assert any(item.trigger_reason in VALID_TRIGGERS for item in pending), (
+        f"At least one item should have a valid trigger_reason; "
+        f"got: {[i.trigger_reason for i in pending]}"
+    )
 
     print(f"  pending review_id  : {pending[0].review_id}")
     print(f"  trigger_reason     : {pending[0].trigger_reason}")

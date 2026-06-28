@@ -1,0 +1,28 @@
+# LLM and embeddings
+openai==2.44.0
+langchain==1.3.11
+langchain-openai==1.3.3
+langchain-community==0.4.2
+langchain-core==1.4.8
+langgraph==1.2.6
+
+# PDF extraction
+pymupdf==1.24.5
+
+# Vector store
+faiss-cpu==1.8.0
+
+# Data handling
+pandas==2.2.2
+numpy==1.26.4
+
+# Web UI
+streamlit==1.36.0
+
+# Evaluation
+scikit-learn==1.5.0
+datasets==2.20.0
+
+# Utilities
+python-dotenv==1.0.1
+tiktoken==0.7.0

@@ -37,11 +37,12 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import yaml
 from openai import OpenAI
 
+from agent.clause_expander import ClauseExpansionResult
 from config import OPENAI_API_KEY, LLM_MODEL, CLAUSE_CATEGORIES
 from schemas.clause import ExtractedClause
 from schemas.risk import ClauseComparison
@@ -180,16 +181,23 @@ def _call_llm(
 
 def compare_to_templates(
     clauses: list[ExtractedClause],
+    expansions: Optional[Dict[str, ClauseExpansionResult]] = None,
 ) -> list[ClauseComparison]:
     """
     Compare each present extracted clause against its standard template.
 
     How it works:
         1. For each ExtractedClause where is_present=True:
-           a. Look up the template file for that clause_type.
-           b. If no template exists: record template_found=False, skip LLM call.
-           c. If template exists: call GPT-4o-mini to compare the texts.
-           d. Wrap the result in a ClauseComparison object.
+           a. Determine comparison text: if an expansion exists for this clause
+              type AND expansion_triggered=True, use expanded_text (which merges
+              the source chunk with adjacent related chunks containing the full
+              clause obligations).  Otherwise use clause.extracted_text as before.
+              This prevents partial extraction boundaries from causing false HIGH
+              risk findings (e.g. only Section 1 definition vs. full template).
+           b. Look up the template file for that clause_type.
+           c. If no template exists: record template_found=False, skip LLM call.
+           d. If template exists: call GPT-4o-mini to compare the texts.
+           e. Wrap the result in a ClauseComparison object.
         2. For absent clauses (is_present=False): return a ClauseComparison
            with template_found based on whether a file exists, but
            deviation_severity="none" (nothing to compare -- risk_engine
@@ -198,7 +206,14 @@ def compare_to_templates(
     Parameters
     ----------
     clauses : list[ExtractedClause]
-        The 10 ExtractedClause objects from extract_clauses().
+        The 10 ExtractedClause objects from extract_clauses(). Must be in
+        CLAUSE_CATEGORIES order.
+    expansions : Optional[Dict[str, ClauseExpansionResult]]
+        Mapping clause_type -> ClauseExpansionResult from the
+        expand_clause_boundaries node.  When provided and expansion was
+        triggered for a clause, the comparator uses expanded_text instead of
+        the original snippet.  None preserves original behaviour (backward
+        compatible with mocked pipeline tests that do not expand).
 
     Returns
     -------
@@ -223,6 +238,18 @@ def compare_to_templates(
             ))
             continue
 
+        # Choose comparison text: expanded (if triggered) or original snippet
+        comparison_text = clause.extracted_text
+        if expansions:
+            exp = expansions.get(clause.clause_type)
+            if exp and exp.expansion_triggered:
+                comparison_text = exp.expanded_text
+                logger.info(
+                    "compare_to_templates: '%s' using expanded text (%d chunks merged)",
+                    clause.clause_type,
+                    len(exp.source_chunk_ids),
+                )
+
         # Present clause: load template
         template_info = _load_template(clause.clause_type)
         if template_info is None:
@@ -246,7 +273,7 @@ def compare_to_templates(
             llm_result = _call_llm(
                 clause_type=clause.clause_type,
                 template_text=template_text,
-                extracted_text=clause.extracted_text,
+                extracted_text=comparison_text,
             )
             results.append(ClauseComparison(
                 clause_type=clause.clause_type,

@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from schemas.review import ReviewDecision, ReviewItem
+from agent.feedback_writer import save_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,17 @@ def apply_human_decision(decision: ReviewDecision, original_item: ReviewItem) ->
                              (the caller should discard the finding entirely;
                               treat the clause/finding as if it was never extracted)
     """
+    # Record the decision to the feedback log (HITL, not RLHF — never touches model weights)
+    try:
+        save_feedback(original_item, decision)
+    except Exception as exc:  # noqa: BLE001 — feedback write must not block downstream pipeline
+        logger.warning(
+            "save_feedback failed for review_id=%s (%s: %s); continuing without feedback record",
+            decision.review_id,
+            type(exc).__name__,
+            exc,
+        )
+
     action = decision.action
 
     if action == "approve":

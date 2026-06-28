@@ -202,6 +202,7 @@ def test_record_reject_marks_resolved():
         review_id=item.review_id,
         action="reject",
         reviewer_note="AI hallucinated this clause.",
+        reject_category="hallucinated_deviation",
     )
     resolved_item = hr_module.record_review_decision(decision)
     assert resolved_item.status == "resolved"
@@ -275,7 +276,7 @@ def test_apply_select_alternative_returns_chosen_alt():
 
 def test_apply_reject_returns_discarded():
     item = _make_item()
-    decision = ReviewDecision(review_id=item.review_id, action="reject")
+    decision = ReviewDecision(review_id=item.review_id, action="reject", reject_category="low_materiality")
     result = hr_module.apply_human_decision(decision, item)
     assert result["action"] == "reject"
     assert result["discarded"] is True
