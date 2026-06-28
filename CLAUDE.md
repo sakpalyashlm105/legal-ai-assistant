@@ -99,33 +99,41 @@ This is NOT a production deployment. It's a capstone with graded checkpoints (St
 
 ---
 
-### Step 12 — feedback + precedent lifecycle: Stages 1–4 complete
+### Step 12 — feedback + precedent lifecycle: COMPLETE (all 5 stages)
 
-**568 tests passing** (515 baseline + 27 Stage 2 schema tests + 14 Stage 3 writer tests + 1 pre-Stage-4 None-category safety test + 11 Stage 4 curation tests).
+**578 tests passing** (515 baseline + 27 Stage 2 + 14 Stage 3 + 1 pre-Stage-4 fix + 11 Stage 4 + 10 Stage 5).
 
 **Completed:**
-- Stage 1: `schemas/feedback.py` — `FeedbackRecord` + `PrecedentScope` with 3 Pydantic `model_validator(mode="after")` safety invariants (HIGH/missing-clause can never be approved, `approved_precedent` requires MEDIUM + `approved_for_precedent=True`, evidence excerpt 1–500 chars)
+- Stage 1: `schemas/feedback.py` — `FeedbackRecord` + `PrecedentScope` with 3 Pydantic `model_validator(mode="after")` safety invariants
 - Stage 2: 27 schema tests in `tests/unit/test_feedback_schema.py`
-- Stage 3: `agent/feedback_writer.py` — `save_feedback()` with idempotency (`fb_<review_id>`), synchronous eligibility classification, PII-safe logging (500-char evidence excerpt cap)
-- Pre-Stage-4 fix: `clause_category` changed to `Optional[ClauseType] = None` on `FeedbackRecord` (not `PrecedentScope`). `"Other"` is NOT a valid `ClauseType` (10 locked categories). `None` → `"not_eligible"` is the first check in `_compute_feedback_status`. Fallback `or "Other"` removed.
-- Stage 4: `agent/feedback_curation.py` — `approve_feedback_as_precedent()` with 8 ordered validation checks, named exception hierarchy (`FeedbackCurationError` base → `FeedbackRecordNotFoundError`, `FeedbackNotEligibleError`, `FeedbackAlreadyPromotedError`, `FeedbackPromotionValidationError`), atomic JSONL rewrite via `os.replace()`, `_clear_feedback_cache()` call after every successful write. 11 tests covering Bakhu not_eligible gate, record-not-found, None clause_category defense-in-depth, MEDIUM happy-path e2e, re-promotion guard, document_type auto-fill, cache-clear spy, atomic-write failure simulation, empty approval_note rejection (parametrized ×3). Committed: `9326783`.
+- Stage 3: `agent/feedback_writer.py` — `save_feedback()` with idempotency, eligibility classification, PII-safe logging (500-char evidence excerpt cap)
+- Pre-Stage-4 fix: `clause_category: Optional[ClauseType] = None` on `FeedbackRecord`; `"Other"` is NOT a valid `ClauseType`; `None` → `not_eligible`
+- Stage 4: `agent/feedback_curation.py` — `approve_feedback_as_precedent()` with 8 ordered validation checks, named exception hierarchy, atomic JSONL rewrite via `os.replace()`, `_clear_feedback_cache()` call. Committed: `9326783`.
+- Stage 5: `agent/risk_engine.py` — JSONL reader, windowed difflib matching at 0.70, document_type null-compatible scope, REG-001 defense-in-depth at two independent levels. Committed: `15cd1b9`.
 
-**Test isolation confirmed solid:** `test_feedback_writer.py` uses `autouse=True` fixture; `test_feedback_curation.py` uses explicit-parameter fixture (every test receives it). Neither file writes to the real `data/feedback/feedback_log.jsonl` during test runs. Pre-existing records in that file are from manual/demo runs only.
+**Stage 5 key changes to `risk_engine.py`:**
+- `FEEDBACK_LOG_PATH`: `data/processed/feedback_log.json` → `data/feedback/feedback_log.jsonl`
+- `_load_feedback_log()`: flat JSON array → line-by-line `FeedbackRecord`; filters to `approved_for_precedent=True + feedback_status=approved_precedent + final_risk=MEDIUM`; malformed lines → WARNING + skip, never raise
+- `_find_precedent()`: plain substring → `_best_window_score()` from `evidence_verifier.py` at `FUZZY_MATCH_THRESHOLD=0.70`; returns `(FeedbackRecord, score)` tuple
+- `_apply_precedent_downgrade()`: REG-001 independent check (`is_clause_present` guard); `precedent_note` now records `feedback_id`, match score, match reason, risk trajectory
+- `flag_risks()`: `+document_type: Optional[str] = None` for scope matching
 
-**`data/feedback/feedback_log.jsonl` state (clean as of pre-Stage-5):** 2 records — `fb_bakhu-live-demo-001` (`not_eligible`) and `fb_rev-medium-report-001` (`approved_precedent`, Illinois Governing Law). Backup at `data/feedback/feedback_log.jsonl.bak`.
+**Real verification (both required, both done):**
+- Part A direct: `_find_precedent("Governing Law / Jurisdiction", illinois_text)` → `fb_rev-medium-report-001`, score=1.00, HIGH→MEDIUM applied
+- Part B pipeline: Bakhu NDA end-to-end. Governing Law / Jurisdiction downgraded HIGH→MEDIUM at 0.71 text similarity against the Illinois precedent. 6 missing clauses all `HIGH, precedent_applied=False` — **REG-001 held on real data**.
+
+**Test isolation confirmed solid:** `test_feedback_writer.py` uses `autouse=True`; `test_feedback_curation.py` and `test_risk_engine_precedent.py` use explicit-parameter fixture on every test. No test writes to the real `data/feedback/feedback_log.jsonl`.
+
+**`data/feedback/feedback_log.jsonl` state:** 2 records — `fb_bakhu-live-demo-001` (`not_eligible`) and `fb_rev-medium-report-001` (`approved_precedent`, Illinois Governing Law). Backup at `feedback_log.jsonl.bak`.
 
 **Key design invariants (never conflate):**
 - `model_finding_accepted` derived **only** from `review_action == "approve"`
-- `clause_language_accepted_as_business_precedent` derived **only** from `mark_clause_language_as_precedent_candidate` — never from action alone. A reviewer can agree with a HIGH-risk finding (Bakhu Confidentiality) without that clause text becoming reusable precedent.
-- HIGH-risk findings and missing-clause findings (`is_clause_present=False`) **can never be promoted to approved_precedent** — enforced at both logic level (`_compute_feedback_status`) and schema level (Pydantic validators)
+- `clause_language_accepted_as_business_precedent` derived **only** from `mark_clause_language_as_precedent_candidate`
+- HIGH-risk and missing-clause findings **can never be promoted to approved_precedent** — enforced at schema level (Pydantic validators) AND at logic level (both `flag_risks` and `_apply_precedent_downgrade`)
 
-**Stage 5 next:** `risk_engine.py` — replace plain substring match with windowed difflib at 0.70; repoint `FEEDBACK_LOG_PATH` from legacy `data/processed/feedback_log.json` (flat JSON array) to `data/feedback/feedback_log.jsonl` (JSONL); migrate precedent tests.
+**Known environment quirk:** stale `pytest.exe` launcher (OneDrive sync artifact). Use `.\venv\Scripts\python.exe -m pytest tests/ -v --tb=short`. Also set `$env:PYTHONIOENCODING="utf-8"` for `run_pipeline.py` (arrow `→` in print statement hits cp1252 encoding on Windows console).
 
-**Stage 6 after that:** Real end-to-end verification — Bakhu run, MEDIUM-risk Illinois promotion, confirm engine picks up the precedent after Stage 5 repoints it.
-
-**Known environment quirk:** this project's venv occasionally produces a stale `pytest.exe` launcher (OneDrive sync artifact) pointing at a nonexistent path (`venv_new`). Standing convention: use `.\venv\Scripts\python.exe -m pytest tests/ -v --tb=short` instead of bare `pytest`. If the launcher itself needs fixing: `pip install --force-reinstall --no-deps pytest`.
-
-**Commit discipline going forward:** commit after each stage, not batched across sessions.
+**Commit discipline:** commit after each stage, not batched across sessions.
 
 **Do not start Step 13 until Step 12 (all stages) is complete and tested.**
 
@@ -232,7 +240,7 @@ Status key: ✅ done | ⚠️ partial | ❌ not built
 ✅ human_review            agent/human_review.py + orchestrator interrupt/resume
 ✅ generate_report         reporting/report_generator.py + reporting/executive_summary.py
 ✅ validate_final_output   guardrails/output_validator.py (Step 11 — complete)
-⚠️ save_feedback           Step 12 — Stages 1–4 complete; Stage 5 (risk_engine JSONL migration) next
+✅ save_feedback           Step 12 — all 5 stages complete; 578 tests passing
 ❌ record_metrics          Step 13
 ```
 
