@@ -33,27 +33,39 @@ Risk assignment rules (locked graded design decisions from CLAUDE.md):
 
 Precedent-aware override (locked graded design from CLAUDE.md):
     Before finalizing a non-standard-clause risk level, check the feedback
-    log (data/processed/feedback_log.json) for previously-approved clauses
-    of the same type. If found, downgrade one tier and record the precedent.
-    This override NEVER applies to missing clauses.
+    log (data/feedback/feedback_log.jsonl) for previously-approved MEDIUM
+    clauses of the same type. If found and text similarity >= 0.70, downgrade
+    one tier and record the precedent.
+    This override NEVER applies to missing clauses (REG-001 invariant).
 
-Feedback log format:
-    A JSON array of objects, each representing a human-approved clause:
-    [
-      {
-        "clause_type": "Governing Law / Jurisdiction",
-        "approved_text_fragment": "laws of the State of California",
-        "approval_date": "2024-03-15",
-        "document_hash": "abc123...",
-        "note": "California jurisdiction approved by legal counsel."
-      },
-      ...
-    ]
-    Matching is fuzzy: if the extracted text contains the approved_text_fragment
-    (case-insensitive substring), the precedent applies.
+REG-001 invariant (enforced at two independent levels):
+    1. flag_risks() never calls _apply_precedent_downgrade() when
+       clause.is_present == False.
+    2. _apply_precedent_downgrade() independently checks clause.is_present
+       and returns immediately without touching the log if False.
+    Either guard alone is sufficient; both together are defense-in-depth.
+
+Feedback log format (Stage 5 — JSONL):
+    data/feedback/feedback_log.jsonl — one JSON object per line, each a
+    full FeedbackRecord. Only records meeting ALL of:
+        - approved_for_precedent == True
+        - feedback_status == "approved_precedent"
+        - final_risk == "MEDIUM"
+    are loaded as active precedents. Everything else is read-and-skipped.
+
+Matching (Stage 5 — windowed difflib):
+    Reuses _best_window_score() from guardrails/evidence_verifier.py and
+    the FUZZY_MATCH_THRESHOLD = 0.70 constant. The evidence_excerpt stored
+    in each FeedbackRecord is the needle; the current clause's extracted_text
+    is the haystack. Compatibility checks:
+        - clause_category: exact match required.
+        - document_type: null-compatible (either side None -> passes).
+        - jurisdiction / template_version: always null-compatible (current
+          document context is not available at flag_risks() call time).
 
 Dependencies:
-    schemas/clause.py, schemas/risk.py, config.py
+    schemas/clause.py, schemas/feedback.py, schemas/risk.py,
+    guardrails/evidence_verifier.py, extraction/pdf_parser.py
 """
 
 import json
@@ -62,33 +74,46 @@ from pathlib import Path
 from typing import Optional
 
 from schemas.clause import ExtractedClause
+from schemas.feedback import FeedbackRecord
 from schemas.risk import ClauseComparison, RiskFinding
+from guardrails.evidence_verifier import _best_window_score, FUZZY_MATCH_THRESHOLD
+from extraction.pdf_parser import normalize_text
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Feedback log path
+# Feedback log path — Stage 5: repointed to curated JSONL precedent store
 # ---------------------------------------------------------------------------
 
-FEEDBACK_LOG_PATH = Path(__file__).parent.parent / "data" / "processed" / "feedback_log.json"
+FEEDBACK_LOG_PATH = Path(__file__).parent.parent / "data" / "feedback" / "feedback_log.jsonl"
 
 # ---------------------------------------------------------------------------
-# Feedback log loader (cached per process run)
+# Feedback log cache (process-scoped; cleared by _clear_feedback_cache())
 # ---------------------------------------------------------------------------
 
-_feedback_log: Optional[list[dict]] = None
+_feedback_log: Optional[list[FeedbackRecord]] = None
 
 
-def _load_feedback_log() -> list[dict]:
+def _load_feedback_log() -> list[FeedbackRecord]:
     """
-    Load the feedback log from disk. Returns an empty list if the file does
-    not exist yet (normal on first run -- no approvals have been recorded).
+    Load approved-precedent records from the JSONL feedback log.
+
+    Only records meeting ALL three of these criteria are treated as active:
+        - approved_for_precedent == True
+        - feedback_status == "approved_precedent"
+        - final_risk == "MEDIUM"
+
+    Everything else (not_eligible, pending_precedent_review, rejected_precedent)
+    is read from disk, parsed, and then discarded -- never causes an error.
+
+    A malformed or unparseable line is skipped with a WARNING log entry.
+    Risk scoring must never crash because of one bad feedback log line.
 
     Why cache?
-        The feedback log is read once per document processed, potentially
-        many times in a batch run. Loading from disk every time would be
-        slow. The cache is process-scoped (not persisted), so changes to
-        the log file during a run are not picked up -- acceptable for batch.
+        The log is read once per process; changes made during a batch run
+        are not picked up until the cache is cleared with _clear_feedback_cache().
+        This is intentional: avoid redundant disk reads across 10 clause checks
+        per document.
     """
     global _feedback_log
     if _feedback_log is not None:
@@ -102,21 +127,66 @@ def _load_feedback_log() -> list[dict]:
         _feedback_log = []
         return _feedback_log
 
-    try:
-        with open(FEEDBACK_LOG_PATH, "r", encoding="utf-8") as f:
-            _feedback_log = json.load(f)
-        logger.info(
-            "Loaded %d precedent entries from feedback log.", len(_feedback_log)
-        )
-    except (json.JSONDecodeError, OSError) as e:
-        logger.error("Failed to load feedback log: %s. Using empty log.", e)
-        _feedback_log = []
+    eligible: list[FeedbackRecord] = []
+    skipped_ineligible = 0
+    skipped_malformed = 0
 
+    try:
+        with open(FEEDBACK_LOG_PATH, "r", encoding="utf-8") as fh:
+            for lineno, raw_line in enumerate(fh, 1):
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                try:
+                    raw = json.loads(raw_line)
+                    record = FeedbackRecord(**raw)
+                except Exception as exc:
+                    logger.warning(
+                        "risk_engine: skipping malformed feedback log line %d — %s",
+                        lineno,
+                        exc,
+                    )
+                    skipped_malformed += 1
+                    continue
+
+                if (
+                    record.approved_for_precedent
+                    and record.feedback_status == "approved_precedent"
+                    and record.final_risk == "MEDIUM"
+                ):
+                    eligible.append(record)
+                else:
+                    skipped_ineligible += 1
+
+    except OSError as exc:
+        logger.error(
+            "risk_engine: failed to open feedback log: %s. Using empty precedent set.",
+            exc,
+        )
+        _feedback_log = []
+        return _feedback_log
+
+    logger.info(
+        "Loaded %d approved precedent(s) from feedback log "
+        "(%d ineligible skipped, %d malformed skipped).",
+        len(eligible),
+        skipped_ineligible,
+        skipped_malformed,
+    )
+    _feedback_log = eligible
     return _feedback_log
 
 
 def _clear_feedback_cache() -> None:
-    """Reset the in-process feedback log cache. Used in tests."""
+    """
+    Reset the in-process feedback log cache.
+
+    Called by agent/feedback_curation.py after every successful atomic
+    write to feedback_log.jsonl, ensuring the risk engine picks up newly
+    promoted precedents within the same process.
+
+    Also used in tests (autouse fixture) to guarantee test isolation.
+    """
     global _feedback_log
     _feedback_log = None
 
@@ -128,33 +198,63 @@ def _clear_feedback_cache() -> None:
 def _find_precedent(
     clause_type: str,
     extracted_text: Optional[str],
-) -> Optional[dict]:
+    document_type: Optional[str] = None,
+) -> Optional[tuple[FeedbackRecord, float]]:
     """
-    Search the feedback log for a previously-approved clause of the same type
-    whose approved_text_fragment appears in the extracted text.
+    Search the approved-precedent store for a record matching the given clause.
 
-    Returns the matching log entry dict, or None if no precedent found.
+    Matching requires ALL of:
+        1. clause_category exact match (case-sensitive string equality).
+        2. document_type compatibility — if both the current finding and the
+           precedent's scope specify a document_type, they must agree. If
+           either is None, the check is skipped (null-compatible).
+        3. Windowed difflib similarity >= FUZZY_MATCH_THRESHOLD (0.70) between
+           the precedent's evidence_excerpt (needle) and the current clause's
+           extracted_text (haystack). Uses _best_window_score() from
+           evidence_verifier.py -- same algorithm, same threshold.
+        4. jurisdiction / template_version: null-compatible in both directions
+           (current document's context is not available at flag_risks() call
+           time, so these constraints are not enforced here).
 
-    Why substring matching?
-        We can't require exact text equality -- legal drafters make small
-        edits. The approved_text_fragment captures the KEY distinguishing
-        phrase (e.g. "laws of the State of California"), not the full clause.
-        If that phrase appears in the extracted text, the precedent applies.
+    When multiple records match, the one with the highest similarity score wins.
+
+    Returns (FeedbackRecord, match_score) or None if no match.
     """
     if not extracted_text:
         return None
 
     log = _load_feedback_log()
-    extracted_lower = extracted_text.lower()
+    if not log:
+        return None
 
-    for entry in log:
-        if entry.get("clause_type") != clause_type:
+    norm_extracted = normalize_text(extracted_text)
+    best_record: Optional[FeedbackRecord] = None
+    best_score: float = 0.0
+
+    for record in log:
+        # Check 1: clause category must match exactly
+        if record.clause_category != clause_type:
             continue
-        fragment = entry.get("approved_text_fragment", "")
-        if fragment and fragment.lower() in extracted_lower:
-            return entry
 
-    return None
+        # Check 2: document_type compatibility (null-compatible on either side)
+        if document_type is not None and record.precedent_scope is not None:
+            scope_doc_type = record.precedent_scope.document_type
+            if scope_doc_type is not None and scope_doc_type != document_type:
+                continue
+
+        # Check 3: windowed text similarity
+        norm_excerpt = normalize_text(record.evidence_excerpt)
+        score = _best_window_score(norm_excerpt, norm_extracted)
+        if score < FUZZY_MATCH_THRESHOLD:
+            continue
+
+        if score > best_score:
+            best_score = score
+            best_record = record
+
+    if best_record is None:
+        return None
+    return (best_record, best_score)
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +315,7 @@ def _apply_precedent_downgrade(
     risk_level: str,
     clause: ExtractedClause,
     comparison: ClauseComparison,
+    document_type: Optional[str] = None,
 ) -> tuple[str, bool, Optional[str]]:
     """
     Apply the precedent-aware override if applicable.
@@ -226,27 +327,61 @@ def _apply_precedent_downgrade(
         MEDIUM -> LOW     (if precedent found)
         LOW    -> LOW     (no downgrade needed)
 
-    This is NEVER called for missing clauses -- the caller (flag_risks) skips
-    this step when clause.is_present=False.
+    REG-001 independent safety re-check:
+        This function must never be called for a missing clause (the caller,
+        flag_risks(), already guards this). The check below is defense-in-depth:
+        even if this function is called directly with a missing clause, it
+        returns the original risk without touching the precedent log.
+
+    When precedent is applied, precedent_note records:
+        - matched feedback_id
+        - match score (text similarity ratio)
+        - match reason (category + score)
+        - original risk -> downgraded risk
+        - curator who approved and when
     """
+    # REG-001 defense-in-depth: missing clause must never reach precedent lookup
+    if not clause.is_present:
+        logger.error(
+            "_apply_precedent_downgrade called for missing clause '%s' — this is a bug. "
+            "Returning original risk level without precedent lookup.",
+            clause.clause_type,
+        )
+        return risk_level, False, None
+
     if risk_level == "LOW":
         return "LOW", False, None
 
-    precedent = _find_precedent(clause.clause_type, clause.extracted_text)
-    if precedent is None:
+    result = _find_precedent(clause.clause_type, clause.extracted_text, document_type)
+    if result is None:
         return risk_level, False, None
 
+    record, score = result
     downgraded = "MEDIUM" if risk_level == "HIGH" else "LOW"
-    note = (
-        f"Previously approved on {precedent.get('approval_date', 'unknown date')}: "
-        f"{precedent.get('note', 'no note recorded')} "
-        f"(document hash: {precedent.get('document_hash', 'unknown')[:12]}...)"
+    match_reason = (
+        f"clause_category match ({record.clause_category!r}) + "
+        f"{score:.2f} text similarity"
     )
+    approved_date = (
+        record.precedent_approved_at.date()
+        if record.precedent_approved_at
+        else "unknown date"
+    )
+    precedent_note = (
+        f"Precedent {record.feedback_id} applied: {match_reason}. "
+        f"Risk: {risk_level} -> {downgraded}. "
+        f"Approved by {record.precedent_approved_by or 'unknown'} ({approved_date})."
+    )
+
     logger.info(
-        "Precedent override applied for %s: %s -> %s. %s",
-        clause.clause_type, risk_level, downgraded, note,
+        "Precedent override applied for %s: %s -> %s. feedback_id=%s score=%.2f",
+        clause.clause_type,
+        risk_level,
+        downgraded,
+        record.feedback_id,
+        score,
     )
-    return downgraded, True, note
+    return downgraded, True, precedent_note
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +391,7 @@ def _apply_precedent_downgrade(
 def flag_risks(
     clauses: list[ExtractedClause],
     comparisons: list[ClauseComparison],
+    document_type: Optional[str] = None,
 ) -> list[RiskFinding]:
     """
     Produce a RiskFinding for each clause category.
@@ -265,7 +401,7 @@ def flag_risks(
            both lists are always ordered by CLAUSE_CATEGORIES).
         2. Assign a base risk level using the 5-rule table above.
         3. For non-missing clauses: check the feedback log for a precedent and
-           downgrade one tier if found.
+           downgrade one tier if found (text similarity >= 0.70).
         4. Build and return a RiskFinding for each pair.
 
     Parameters
@@ -276,11 +412,15 @@ def flag_risks(
     comparisons : list[ClauseComparison]
         The 10 ClauseComparison objects from compare_to_templates(). Must be
         in the same order as clauses.
+    document_type : str or None
+        Optional document type for precedent scope matching (e.g. "NDA",
+        "Contract"). When None, document_type compatibility check is skipped.
+        Sourced from classify_document() in the full pipeline.
 
     Returns
     -------
     list[RiskFinding]
-        Always exactly 10 findings, one per clause category.
+        Always exactly as many findings as input clauses (10 in normal use).
 
     Raises
     ------
@@ -299,10 +439,12 @@ def flag_risks(
     for clause, comparison in zip(clauses, comparisons):
         base_risk, reason = _assign_base_risk(clause, comparison)
 
-        # Precedent override is skipped for missing clauses (locked rule)
+        # REG-001: precedent override is skipped for missing clauses (locked rule).
+        # _apply_precedent_downgrade has its own independent guard, but we never
+        # call it at all for missing clauses -- belt AND suspenders.
         if clause.is_present:
             final_risk, precedent_applied, precedent_note = _apply_precedent_downgrade(
-                base_risk, clause, comparison
+                base_risk, clause, comparison, document_type
             )
         else:
             final_risk = base_risk

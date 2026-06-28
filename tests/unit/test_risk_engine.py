@@ -27,6 +27,7 @@ How to run:
 
 import json
 import pytest
+from datetime import datetime
 from pathlib import Path
 
 from schemas.clause import ExtractedClause
@@ -44,10 +45,10 @@ def reset_feedback_cache(tmp_path, monkeypatch):
     """
     Each test gets its own feedback log path and a clean in-process cache.
     monkeypatch redirects FEEDBACK_LOG_PATH so tests never touch the real file.
+    Now points to a .jsonl file (JSONL format, Stage 5).
     """
     _clear_feedback_cache()
-    # Point the module's FEEDBACK_LOG_PATH to a tmp location
-    monkeypatch.setattr("agent.risk_engine.FEEDBACK_LOG_PATH", tmp_path / "feedback_log.json")
+    monkeypatch.setattr("agent.risk_engine.FEEDBACK_LOG_PATH", tmp_path / "feedback_log.jsonl")
     yield
     _clear_feedback_cache()
 
@@ -88,10 +89,68 @@ def _make_comparison(
     )
 
 
-def _write_feedback_log(tmp_path, entries: list[dict]):
-    """Write a feedback log JSON file into the test's tmp_path."""
-    log_path = tmp_path / "feedback_log.json"
-    log_path.write_text(json.dumps(entries), encoding="utf-8")
+def _approved_record(
+    clause_category: str,
+    evidence_excerpt: str,
+    *,
+    feedback_id: str = "fb_test-migration-001",
+    document_type: str = "Contract",
+    approval_date: str = "2024-03-15",
+) -> dict:
+    """
+    Build a minimal FeedbackRecord dict (JSONL shape) for Stage-5 test fixtures.
+
+    Only fields required to pass FeedbackRecord validation are included.
+    The record is always approved_for_precedent=True / feedback_status="approved_precedent"
+    / final_risk="MEDIUM" so the risk engine treats it as an active precedent.
+    """
+    return {
+        "feedback_id": feedback_id,
+        "document_id": "testdoc001",
+        "document_name": "Test_Agreement.pdf",
+        "document_type": document_type,
+        "clause_category": clause_category,
+        "source_page": 2,
+        "source_chunk_ids": [],
+        "evidence_excerpt": evidence_excerpt,
+        "original_model_category": clause_category,
+        "original_model_risk": "MEDIUM",
+        "original_model_reason": "Test fixture record.",
+        "original_confidence": 0.88,
+        "review_action": "approve",
+        "final_category": clause_category,
+        "final_risk": "MEDIUM",
+        "reviewer_comment": "Approved for test.",
+        "model_finding_accepted": True,
+        "clause_language_accepted_as_business_precedent": True,
+        "is_clause_present": True,
+        "feedback_status": "approved_precedent",
+        "approved_for_precedent": True,
+        "precedent_scope": {
+            "clause_category": clause_category,
+            "document_type": None,   # None = applies to all document types
+            "jurisdiction": None,
+            "template_version": None,
+        },
+        "precedent_approved_by": "test.curator@company.com",
+        "precedent_approved_at": f"{approval_date}T00:00:00",
+        "model_name": "gpt-4o-mini",
+        "created_at": "2024-03-15T12:00:00",
+    }
+
+
+def _write_feedback_log(tmp_path, records: list[dict]) -> None:
+    """
+    Write feedback log records as JSONL into the test's tmp_path.
+
+    Stage 5: one JSON object per line (JSONL), not a flat JSON array.
+    Each record must be a valid FeedbackRecord dict with
+    approved_for_precedent=True / feedback_status="approved_precedent" /
+    final_risk="MEDIUM" to be treated as an active precedent by the engine.
+    """
+    log_path = tmp_path / "feedback_log.jsonl"
+    lines = "\n".join(json.dumps(r) for r in records)
+    log_path.write_text(lines + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -192,21 +251,27 @@ def test_major_deviation_with_precedent_is_medium(tmp_path):
         deviation_summary="Jurisdiction changed from New York to California.",
     )
 
-    _write_feedback_log(tmp_path, [{
-        "clause_type": "Governing Law / Jurisdiction",
-        "approved_text_fragment": "laws of the State of California",
-        "approval_date": "2024-03-15",
-        "document_hash": "abc123def456",
-        "note": "California jurisdiction approved by legal counsel for West Coast vendors.",
-    }])
+    # Stage 5 migration: JSONL FeedbackRecord shape (was flat JSON array with
+    # "approved_text_fragment" key; now full FeedbackRecord with "evidence_excerpt").
+    # evidence_excerpt holds the key phrase used for windowed difflib matching.
+    # All other behavioral fields (approved_for_precedent, feedback_status,
+    # final_risk) must be set so the engine recognises it as an active precedent.
+    _write_feedback_log(tmp_path, [_approved_record(
+        clause_category="Governing Law / Jurisdiction",
+        evidence_excerpt="laws of the State of California",
+        feedback_id="fb_test-cal-001",
+        approval_date="2024-03-15",
+    )])
 
     findings = flag_risks([clause], [comparison])
 
     f = findings[0]
+    # Behavioral assertion UNCHANGED: major deviation + matching precedent -> MEDIUM
     assert f.risk_level == "MEDIUM"
     assert f.precedent_applied is True
     assert f.precedent_note is not None
-    assert "California" in f.precedent_note or "2024-03-15" in f.precedent_note
+    # Note format changed (Stage 5): now contains feedback_id and similarity score.
+    assert "fb_test-cal-001" in f.precedent_note
 
 
 # ---------------------------------------------------------------------------
@@ -225,17 +290,22 @@ def test_minor_deviation_with_precedent_is_low(tmp_path):
         deviation_summary="Notice period extended from 30 to 60 days.",
     )
 
-    _write_feedback_log(tmp_path, [{
-        "clause_type": "Termination for Convenience",
-        "approved_text_fragment": "sixty (60) days",
-        "approval_date": "2024-01-10",
-        "document_hash": "deadbeef1234",
-        "note": "60-day notice period approved for enterprise contracts.",
-    }])
+    # Stage 5 migration: JSONL FeedbackRecord shape.
+    # evidence_excerpt must cover enough of the clause text to score >= 0.70 via
+    # windowed difflib. Short key-phrase excerpts (like the old "approved_text_fragment")
+    # can fall below threshold when the haystack is much longer. Use the full
+    # clause sentence, which is well under the 500-char ceiling.
+    _write_feedback_log(tmp_path, [_approved_record(
+        clause_category="Termination for Convenience",
+        evidence_excerpt="Either party may terminate upon sixty (60) days written notice",
+        feedback_id="fb_test-term-001",
+        approval_date="2024-01-10",
+    )])
 
     findings = flag_risks([clause], [comparison])
 
     f = findings[0]
+    # Behavioral assertion UNCHANGED: minor deviation + matching precedent -> LOW
     assert f.risk_level == "LOW"
     assert f.precedent_applied is True
 
@@ -246,7 +316,7 @@ def test_minor_deviation_with_precedent_is_low(tmp_path):
 
 def test_missing_clause_ignores_precedent(tmp_path):
     """
-    This is the most important invariant in the risk engine.
+    REG-001: the most important invariant in the risk engine.
     A missing clause must ALWAYS be HIGH, even if a precedent entry exists
     for that clause type. Precedent override is only for present-but-deviating
     clauses, never for absent ones.
@@ -254,20 +324,22 @@ def test_missing_clause_ignores_precedent(tmp_path):
     clause = _make_clause("Indemnification", is_present=False)
     comparison = _make_comparison("Indemnification", deviation_severity="none")
 
-    # Add a precedent that would match if the clause were present
-    _write_feedback_log(tmp_path, [{
-        "clause_type": "Indemnification",
-        "approved_text_fragment": "indemnify",
-        "approval_date": "2024-06-01",
-        "document_hash": "cafebabe5678",
-        "note": "Limited indemnification approved.",
-    }])
+    # Stage 5 migration: JSONL FeedbackRecord shape.
+    # The precedent exists in the log (for a present clause). The missing clause
+    # must still be HIGH regardless -- _find_precedent is never called.
+    # Behavioral assertion UNCHANGED: missing clause ignores all precedents -> HIGH.
+    _write_feedback_log(tmp_path, [_approved_record(
+        clause_category="Indemnification",
+        evidence_excerpt="indemnify and hold harmless against any claims",
+        feedback_id="fb_test-indem-001",
+        approval_date="2024-06-01",
+    )])
 
     findings = flag_risks([clause], [comparison])
 
     f = findings[0]
     assert f.risk_level == "HIGH", (
-        "Missing clause must remain HIGH even when a precedent entry exists"
+        "Missing clause must remain HIGH even when a precedent entry exists — REG-001"
     )
     assert f.precedent_applied is False
     assert f.is_missing is True
