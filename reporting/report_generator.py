@@ -167,7 +167,16 @@ def build_clause_entries(
 
     entries = []
     for clause in clauses:
-        label, explanation = confidence_to_label(clause.confidence)
+        if clause.is_present:
+            label, explanation = confidence_to_label(clause.confidence)
+        else:
+            # Clause is absent — the extractor found no text to evaluate.
+            # confidence=0.0 on an absent clause is not a low-confidence
+            # extraction; it means confidence is not applicable.  Showing
+            # "LOW" here would imply the system tried and was uncertain,
+            # which is wrong.
+            label = "N/A"
+            explanation = "Clause is absent — extraction confidence is not applicable."
         finding = risk_by_type.get(clause.clause_type)
         risk_level = finding.risk_level if finding else None
         deviation = finding.deviation_summary if finding else None

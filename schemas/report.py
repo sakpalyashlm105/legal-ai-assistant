@@ -89,13 +89,14 @@ class FinalOutputValidationResult(BaseModel):
 # Confidence label vocabulary
 # ---------------------------------------------------------------------------
 
-ConfidenceLabel = Literal["HIGH", "MODERATE", "LOW"]
+ConfidenceLabel = Literal["HIGH", "MODERATE", "LOW", "N/A"]
 """
 Maps from internal 0-1 float confidence scores to human-readable labels.
 Thresholds used by report_generator.confidence_to_label():
     >= 0.70  -> HIGH      (consistent with CLAUDE.md's auto-proceed threshold)
     0.50-0.69 -> MODERATE (consistent with the ToT routing band)
     < 0.50   -> LOW       (below the auto-proceed floor; requires closer review)
+    N/A      -> absent clause; confidence is not applicable (no text was extracted)
 
 These boundaries are not arbitrary -- they mirror the same thresholds used
 for routing decisions in classifier.py and extractor.py. Reusing them here

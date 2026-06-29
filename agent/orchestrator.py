@@ -732,6 +732,18 @@ def node_flag_risks(state: PipelineState) -> Dict[str, Any]:
             "node_flag_risks: %d findings, %d HIGH",
             len(findings), len(high_risk),
         )
+
+        # Shadow-mode review scoring — purely observational, no routing effect.
+        # Scores are written to data/metrics/review_scores_log.jsonl for
+        # later calibration analysis. This call never affects interrupt decisions.
+        try:
+            from agent.review_score import log_review_scores
+            thread_id = state.get("_thread_id", "unknown")
+            doc_hash = state.get("document_hash", "")
+            log_review_scores(findings, thread_id=thread_id, document_hash=doc_hash)
+        except Exception as _score_exc:
+            logger.warning("node_flag_risks: review scoring failed (shadow mode): %s", _score_exc)
+
         return {
             "comparisons": [c.model_dump(mode="json") for c in comparisons],
             "findings": [f.model_dump(mode="json") for f in findings],
@@ -1000,6 +1012,11 @@ def node_check_human_review(state: PipelineState) -> Dict[str, Any]:
     # On first call: raises GraphInterrupt (graph pauses here).
     # On resume:     returns the value provided in Command(resume=...).
     human_decisions = interrupt(payload)
+
+    print(f"[DEBUG] interrupt() returned type={type(human_decisions)}, len={len(human_decisions) if isinstance(human_decisions, list) else 'N/A'}")
+    if isinstance(human_decisions, list):
+        for i, d in enumerate(human_decisions):
+            print(f"[DEBUG]   item {i}: action={d.get('action')} clause_category={d.get('review_item', {}).get('clause_category') if isinstance(d.get('review_item'), dict) else d.get('clause_category')} discarded={d.get('discarded')}")
 
     logger.info(
         "node_check_human_review: resumed with %d decisions",
@@ -1615,7 +1632,11 @@ def run_pipeline(
     }
 
 
-def resume_after_review(thread_id: str, decision: ReviewDecision) -> Dict[str, Any]:
+def resume_after_review(
+    thread_id: str,
+    decision: ReviewDecision,
+    prior_decisions: Optional[List[Dict]] = None,
+) -> Dict[str, Any]:
     """
     Apply a human decision and resume an interrupted graph.
 
@@ -1670,13 +1691,31 @@ def resume_after_review(thread_id: str, decision: ReviewDecision) -> Dict[str, A
 
     # Build the decisions list to pass as the resume value.
     # This is returned by interrupt() inside node_check_human_review on re-execution.
-    current_decisions = list(snap.values.get("human_decisions", []))
+    # prior_decisions contains outcomes for items 1..N-1 that were recorded in the
+    # queue file before this (the final) resume call. They must be included here so
+    # that ALL N decisions land in human_decisions state and appear in the report.
+    current_decisions = list(prior_decisions or [])
+    current_decisions.extend(snap.values.get("human_decisions", []))
+    # Include all fields that node_generate_report and render_markdown need:
+    # clause_category (via review_item), reviewer_note, reason, corrected_risk_level,
+    # decided_at. Without these the report can't match decisions to findings and every
+    # item falls into "AI Findings (Not Yet Reviewed)".
     current_decisions.append({
         "review_id": decision.review_id,
         "action": decision.action,
         "discarded": outcome.get("discarded", False),
         "value": outcome.get("value"),
+        "reviewer_note": decision.reviewer_note,
+        "reason": decision.reason or "",
+        "corrected_risk_level": decision.corrected_risk_level,
+        "corrected_summary": None,
+        "decided_at": datetime.now(timezone.utc).isoformat(),
+        "review_item": {"clause_category": resolved_item.clause_category},
     })
+
+    print(f"[DEBUG] about to resume with {len(current_decisions)} decisions:")
+    for i, d in enumerate(current_decisions):
+        print(f"[DEBUG]   decision {i}: action={d.get('action')} clause_category={d.get('review_item', {}).get('clause_category')} discarded={d.get('discarded')}")
 
     # 1.2.6 resume: Command(resume=...) carries the payload into interrupt()
     state = _app.invoke(Command(resume=current_decisions), config)

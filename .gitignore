@@ -10,3 +10,16 @@ data/review_queue/
 venv/
 *.egg-info/
 .pytest_cache/
+
+
+# Generated runtime logs
+data/feedback/*.jsonl
+data/metrics/*.jsonl
+
+# Keep folders in Git if needed
+!data/feedback/.gitkeep
+!data/metrics/.gitkeep
+
+# Runtime-generated feedback and metrics
+data/feedback/*.jsonl
+data/metrics/*.jsonl
