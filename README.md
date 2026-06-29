@@ -1,2 +1,2 @@
-# legal-ai-assistant
+# Legal-Ai-Assistant
 Autonomous legal document review assistant using LangGraph, RAG, risk scoring, precedent retrieval, and human-in-the-loop review.
